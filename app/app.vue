@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 
@@ -13,24 +13,134 @@ const isTrimming = ref(false)
 const isApplyingOverlays = ref(false)
 const finalVideoUrl = ref<string | null>(null)
 
-// 動画関連の状態
-const videoFile = ref<File | null>(null)
-const videoUrl = ref<string | null>(null)
-const videoDuration = ref<number>(0)
-const startTime = ref<number>(0)
-const endTime = ref<number>(0)
-const trimmedVideoUrl = ref<string | null>(null)
+// カットの型定義
+type Cut = {
+  id: number
+  name: string
+  videoFile: File | null
+  videoUrl: string | null
+  videoDuration: number
+  startTime: number
+  endTime: number
+  trimmedVideoUrl: string | null
+  finalVideoUrl: string | null
+  textItems: Array<{ id: number; text: string; startTime: number; endTime: number }>
+  imageItems: Array<{ id: number; file: File | null; url: string | null; position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; startTime: number; endTime: number }>
+  isCollapsed: boolean
+}
+
+// カットリスト
+const cuts = ref<Cut[]>([])
+let cutIdCounter = 0
+let textItemIdCounter = 0
+let imageItemIdCounter = 0
+
+// 初期カットを追加
+const initializeDefaultCut = () => {
+  if (cuts.value.length === 0) {
+    const defaultCut: Cut = {
+      id: cutIdCounter++,
+      name: 'カット1',
+      videoFile: null,
+      videoUrl: null,
+      videoDuration: 0,
+      startTime: 0,
+      endTime: 0,
+      trimmedVideoUrl: null,
+      finalVideoUrl: null,
+      textItems: [],
+      imageItems: [],
+      isCollapsed: false
+    }
+    cuts.value.push(defaultCut)
+    activeCutId.value = defaultCut.id
+  }
+}
+
+// 現在選択中のカットID
+const activeCutId = ref<number | null>(null)
+
+// 編集中のカットID
+const editingCutId = ref<number | null>(null)
+
+// ドラッグ&ドロップ関連
+const draggedCutId = ref<number | null>(null)
+const dragOverCutId = ref<number | null>(null)
+
+// 動画タイトル
+const videoTitle = ref<string>('')
+
+// 完成動画の生成中状態
+const isCompleting = ref(false)
+
+// 現在選択中のカットを取得
+const activeCut = computed(() => {
+  if (activeCutId.value === null) return null
+  return cuts.value.find(c => c.id === activeCutId.value) || null
+})
+
+// 動画関連の状態（現在選択中のカットから取得）
+const videoFile = computed({
+  get: () => activeCut.value?.videoFile || null,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.videoFile = val
+  }
+})
+const videoUrl = computed({
+  get: () => activeCut.value?.videoUrl || null,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.videoUrl = val
+  }
+})
+const videoDuration = computed({
+  get: () => activeCut.value?.videoDuration || 0,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.videoDuration = val
+  }
+})
+const startTime = computed({
+  get: () => activeCut.value?.startTime || 0,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.startTime = val
+  }
+})
+const endTime = computed({
+  get: () => activeCut.value?.endTime || 0,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.endTime = val
+  }
+})
+const trimmedVideoUrl = computed({
+  get: () => activeCut.value?.trimmedVideoUrl || null,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.trimmedVideoUrl = val
+  }
+})
+const isOriginalVideoCollapsed = computed({
+  get: () => activeCut.value?.isCollapsed || false,
+  set: (val) => {
+    if (activeCut.value) activeCut.value.isCollapsed = val
+  }
+})
 
 // パネルの表示状態
 const activePanel = ref<'text' | 'image' | null>(null)
 
-// テキスト挿入関連
-const textItems = ref<Array<{ id: number; text: string; startTime: number; endTime: number }>>([])
-let textItemIdCounter = 0
+// テキスト挿入関連（現在選択中のカットから取得）
+const textItems = computed({
+  get: () => activeCut.value?.textItems || [],
+  set: (val) => {
+    if (activeCut.value) activeCut.value.textItems = val
+  }
+})
 
-// 画像挿入関連
-const imageItems = ref<Array<{ id: number; file: File | null; url: string | null; position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'; startTime: number; endTime: number }>>([])
-let imageItemIdCounter = 0
+// 画像挿入関連（現在選択中のカットから取得）
+const imageItems = computed({
+  get: () => activeCut.value?.imageItems || [],
+  set: (val) => {
+    if (activeCut.value) activeCut.value.imageItems = val
+  }
+})
 
 // メディアライブラリ関連
 const showMediaLibrary = ref(false)
@@ -42,25 +152,171 @@ const trimmedVideoCurrentTime = ref(0)
 // トリミング後動画プレイヤーの参照
 const trimmedVideoRef = ref<HTMLVideoElement | null>(null)
 
-// 元動画の折りたたみ状態
-const isOriginalVideoCollapsed = ref(false)
+// カットの追加
+const addCut = () => {
+  const newCut: Cut = {
+    id: cutIdCounter++,
+    name: `カット${cuts.value.length + 1}`,
+    videoFile: null,
+    videoUrl: null,
+    videoDuration: 0,
+    startTime: 0,
+    endTime: 0,
+    trimmedVideoUrl: null,
+    finalVideoUrl: null,
+    textItems: [],
+    imageItems: [],
+    isCollapsed: false
+  }
+  cuts.value.push(newCut)
+  activeCutId.value = newCut.id
+}
+
+// カットの削除
+const removeCut = (cutId: number) => {
+  if (cuts.value.length <= 1) {
+    alert('カットが1つしかない場合は削除できません')
+    return
+  }
+  
+  const index = cuts.value.findIndex(c => c.id === cutId)
+  if (index !== -1) {
+    const cut = cuts.value[index]
+    // URLを解放
+    if (cut.videoUrl && cut.videoUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(cut.videoUrl)
+    }
+    if (cut.trimmedVideoUrl) {
+      URL.revokeObjectURL(cut.trimmedVideoUrl)
+    }
+    if (cut.finalVideoUrl) {
+      URL.revokeObjectURL(cut.finalVideoUrl)
+    }
+    cuts.value.splice(index, 1)
+    
+    // 削除されたカットが選択中だった場合、別のカットを選択
+    if (activeCutId.value === cutId) {
+      activeCutId.value = cuts.value.length > 0 ? cuts.value[0].id : null
+    }
+  }
+}
+
+// カットの選択
+const selectCut = (cutId: number) => {
+  activeCutId.value = cutId
+}
+
+// カット名の変更
+const renameCut = (cutId: number, newName: string) => {
+  const cut = cuts.value.find(c => c.id === cutId)
+  if (cut) {
+    cut.name = newName.trim() || `カット${cuts.value.indexOf(cut) + 1}`
+  }
+}
+
+// カット名の編集を開始
+const startEditingCutName = (cutId: number, event?: Event) => {
+  if (event) {
+    event.stopPropagation()
+  }
+  editingCutId.value = cutId
+  // 次のティックでフォーカスを設定
+  nextTick(() => {
+    const input = document.querySelector(`.tab.editing .tab-name-input`) as HTMLInputElement
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+// カット名の編集を終了
+const finishEditingCutName = (cutId: number, newName: string) => {
+  renameCut(cutId, newName)
+  editingCutId.value = null
+}
+
+// カット名の編集をキャンセル
+const cancelEditingCutName = () => {
+  editingCutId.value = null
+}
+
+// ドラッグ開始
+const handleDragStart = (cutId: number, event: DragEvent) => {
+  if (editingCutId.value === cutId) {
+    event.preventDefault()
+    return
+  }
+  draggedCutId.value = cutId
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', '')
+  }
+}
+
+// ドラッグオーバー
+const handleDragOver = (cutId: number, event: DragEvent) => {
+  if (draggedCutId.value === null || draggedCutId.value === cutId) {
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverCutId.value = cutId
+}
+
+// ドラッグリーブ
+const handleDragLeave = () => {
+  dragOverCutId.value = null
+}
+
+// ドロップ
+const handleDrop = (cutId: number, event: DragEvent) => {
+  event.preventDefault()
+  if (draggedCutId.value === null || draggedCutId.value === cutId) {
+    draggedCutId.value = null
+    dragOverCutId.value = null
+    return
+  }
+  
+  const draggedIndex = cuts.value.findIndex(c => c.id === draggedCutId.value)
+  const dropIndex = cuts.value.findIndex(c => c.id === cutId)
+  
+  if (draggedIndex !== -1 && dropIndex !== -1) {
+    // カットの順番を変更
+    const [draggedCut] = cuts.value.splice(draggedIndex, 1)
+    cuts.value.splice(dropIndex, 0, draggedCut)
+  }
+  
+  draggedCutId.value = null
+  dragOverCutId.value = null
+}
+
+// ドラッグ終了
+const handleDragEnd = () => {
+  draggedCutId.value = null
+  dragOverCutId.value = null
+}
 
 // 元動画のリセット
 const clearVideo = () => {
   console.log('[Video] clearVideo called')
+  const cut = activeCut.value
+  if (!cut) return
 
   // 動画関連の状態をすべてリセット
-  videoFile.value = null
-  videoUrl.value = null
-  trimmedVideoUrl.value = null
-  finalVideoUrl.value = null
-  videoDuration.value = 0
-  startTime.value = 0
-  endTime.value = 0
+  cut.videoFile = null
+  cut.videoUrl = null
+  cut.trimmedVideoUrl = null
+  cut.finalVideoUrl = null
+  cut.videoDuration = 0
+  cut.startTime = 0
+  cut.endTime = 0
 
   // テキスト・画像オーバーレイもクリア
-  textItems.value = []
-  imageItems.value = []
+  cut.textItems = []
+  cut.imageItems = []
 
   // ファイル入力の値もクリア（同じファイルを再選択できるようにする）
   const inputEl = document.getElementById('video-input') as HTMLInputElement | null
@@ -72,8 +328,10 @@ const clearVideo = () => {
 // トリミング後動画のみリセット
 const clearTrimmedVideo = () => {
   console.log('[Video] clearTrimmedVideo called')
-  trimmedVideoUrl.value = null
-  finalVideoUrl.value = null
+  const cut = activeCut.value
+  if (!cut) return
+  cut.trimmedVideoUrl = null
+  cut.finalVideoUrl = null
   trimmedVideoCurrentTime.value = 0
 }
 
@@ -131,6 +389,9 @@ const getImageOverlayStyle = (position: 'top-left' | 'top-right' | 'bottom-left'
 onMounted(async () => {
   // クライアントサイドでのみ実行
   if (import.meta.server) return
+  
+  // デフォルトカットを初期化
+  initializeDefaultCut()
   
   // 少し遅延させてから読み込みを開始（DOMが完全に読み込まれた後）
   await new Promise(resolve => setTimeout(resolve, 100))
@@ -290,24 +551,37 @@ const handleVideoUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (file && file.type.startsWith('video/')) {
-    videoFile.value = file
-    videoUrl.value = URL.createObjectURL(file)
+    // カットが存在しない場合は新規作成
+    if (cuts.value.length === 0 || activeCutId.value === null) {
+      addCut()
+    }
+    
+    const cut = activeCut.value
+    if (!cut) return
+    
+    cut.videoFile = file
+    cut.videoUrl = URL.createObjectURL(file)
     
     // 動画の長さを取得
     const video = document.createElement('video')
     video.preload = 'metadata'
-    video.src = videoUrl.value
+    video.src = cut.videoUrl
     video.onloadedmetadata = () => {
-      videoDuration.value = video.duration
-      endTime.value = video.duration
+      cut.videoDuration = video.duration
+      cut.endTime = video.duration
     }
     
     // Supabaseにアップロード
     await uploadVideoToSupabase(file)
+    
+    // ファイル入力をリセット
+    target.value = ''
   }
 }
 
-// Supabaseに動画をアップロード
+// Supabaseに動画をアップロード（メディアライブラリに追加される）
+// 注意: アップロードした動画のみがメディアライブラリに保存されます
+// 完成動画やトリミング後の動画は自動保存されません
 const uploadVideoToSupabase = async (file: File) => {
   try {
     const fileExt = file.name.split('.').pop()
@@ -323,7 +597,7 @@ const uploadVideoToSupabase = async (file: File) => {
     
     if (uploadError) throw uploadError
     
-    // メディアライブラリを更新
+    // メディアライブラリを更新（アップロードした動画のみが表示される）
     await loadMediaLibrary()
   } catch (error) {
     console.error('Error uploading video:', error)
@@ -333,14 +607,22 @@ const uploadVideoToSupabase = async (file: File) => {
 
 // メディアライブラリから動画を選択
 const selectVideoFromLibrary = async (video: { id: string; url: string; name: string }) => {
-  videoUrl.value = video.url
+  // カットが存在しない場合は新規作成
+  if (cuts.value.length === 0 || activeCutId.value === null) {
+    addCut()
+  }
+  
+  const cut = activeCut.value
+  if (!cut) return
+  
   showMediaLibrary.value = false
+  cut.videoUrl = video.url
   
   // 動画ファイルを取得
   try {
     const response = await fetch(video.url)
     const blob = await response.blob()
-    videoFile.value = new File([blob], video.name, { type: blob.type })
+    cut.videoFile = new File([blob], video.name, { type: blob.type })
   } catch (error) {
     console.error('Error fetching video file:', error)
   }
@@ -350,19 +632,25 @@ const selectVideoFromLibrary = async (video: { id: string; url: string; name: st
   videoEl.preload = 'metadata'
   videoEl.src = video.url
   videoEl.onloadedmetadata = () => {
-    videoDuration.value = videoEl.duration
-    endTime.value = videoEl.duration
+    cut.videoDuration = videoEl.duration
+    cut.endTime = videoEl.duration
   }
 }
 
 // 動画のトリミング
 const applyTrim = async () => {
-  if (!videoUrl.value) {
+  const cut = activeCut.value
+  if (!cut) {
+    alert('カットを選択してください')
+    return
+  }
+  
+  if (!cut.videoUrl) {
     alert('動画をアップロードしてください')
     return
   }
   
-  if (!videoFile.value) {
+  if (!cut.videoFile) {
     alert('動画ファイルが見つかりません。再度アップロードしてください。')
     return
   }
@@ -372,35 +660,35 @@ const applyTrim = async () => {
     return
   }
   
-  if (startTime.value >= endTime.value) {
+  if (cut.startTime >= cut.endTime) {
     alert('開始時間は終了時間より前である必要があります')
     return
   }
   
-  if (endTime.value > videoDuration.value) {
-    alert(`終了時間は動画の長さ（${videoDuration.value.toFixed(2)}秒）を超えることはできません`)
+  if (cut.endTime > cut.videoDuration) {
+    alert(`終了時間は動画の長さ（${cut.videoDuration.toFixed(2)}秒）を超えることはできません`)
     return
   }
   
   try {
     isTrimming.value = true
     
-    const duration = endTime.value - startTime.value
+    const duration = cut.endTime - cut.startTime
     console.log('[Trim] Starting trim:', {
-      startTime: startTime.value,
-      endTime: endTime.value,
+      startTime: cut.startTime,
+      endTime: cut.endTime,
       duration: duration,
-      fileSize: videoFile.value.size,
-      fileName: videoFile.value.name
+      fileSize: cut.videoFile.size,
+      fileName: cut.videoFile.name
     })
     
     // 入力ファイル名を動画の拡張子に合わせる
-    const inputFileName = `input.${videoFile.value.name.split('.').pop() || 'mp4'}`
-    const outputFileName = 'output.mp4'
+    const inputFileName = `input_${cut.id}.${cut.videoFile.name.split('.').pop() || 'mp4'}`
+    const outputFileName = `output_${cut.id}.mp4`
     
     // 入力ファイルをFFmpegに書き込む
     console.log('[Trim] Writing input file:', inputFileName)
-    await ffmpeg.value.writeFile(inputFileName, await fetchFile(videoFile.value))
+    await ffmpeg.value.writeFile(inputFileName, await fetchFile(cut.videoFile))
     console.log('[Trim] Input file written')
     
     // トリミングコマンドを実行
@@ -415,7 +703,7 @@ const applyTrim = async () => {
     try {
       command = [
         '-i', inputFileName,
-        '-ss', startTime.value.toString(),
+        '-ss', cut.startTime.toString(),
         '-t', duration.toString(),
         '-c', 'copy',
         '-avoid_negative_ts', 'make_zero',
@@ -446,7 +734,7 @@ const applyTrim = async () => {
           try {
             command = [
               '-i', inputFileName,
-              '-ss', startTime.value.toString(),
+              '-ss', cut.startTime.toString(),
               '-t', duration.toString(),
               '-c:v', codecs.video,
               '-c:a', codecs.audio,
@@ -474,7 +762,7 @@ const applyTrim = async () => {
         console.log('[Trim] Trying simple command...')
         command = [
           '-i', inputFileName,
-          '-ss', startTime.value.toString(),
+          '-ss', cut.startTime.toString(),
           '-t', duration.toString(),
           outputFileName
         ]
@@ -489,7 +777,9 @@ const applyTrim = async () => {
     const fileData = await ffmpeg.value.readFile(outputFileName)
     const data = fileData instanceof Uint8Array ? fileData : (typeof fileData === 'string' ? new TextEncoder().encode(fileData) : new Uint8Array(fileData as unknown as ArrayBuffer))
     const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' })
-    trimmedVideoUrl.value = URL.createObjectURL(blob)
+    if (cut) {
+      cut.trimmedVideoUrl = URL.createObjectURL(blob)
+    }
     console.log('[Trim] Output file created, size:', blob.size)
     
     // 一時ファイルを削除
@@ -535,17 +825,20 @@ const applyTrim = async () => {
 
 // テキストアイテムの追加
 const addTextItem = () => {
-  textItems.value.push({
+  if (!activeCut.value) return
+  const newItem = {
     id: textItemIdCounter++,
     text: '',
     startTime: 0,
     endTime: 0
-  })
+  }
+  activeCut.value.textItems.push(newItem)
 }
 
 // テキストアイテムの削除
 const removeTextItem = (id: number) => {
-  textItems.value = textItems.value.filter(item => item.id !== id)
+  if (!activeCut.value) return
+  activeCut.value.textItems = activeCut.value.textItems.filter(item => item.id !== id)
 }
 
 // AI文字起こし（プレースホルダー）
@@ -560,7 +853,8 @@ const transcribeAudio = async () => {
 
 // 画像アイテムの追加
 const addImageItem = () => {
-  imageItems.value.push({
+  if (!activeCut.value) return
+  activeCut.value.imageItems.push({
     id: imageItemIdCounter++,
     file: null,
     url: null,
@@ -572,15 +866,17 @@ const addImageItem = () => {
 
 // 画像アイテムの削除
 const removeImageItem = (id: number) => {
-  imageItems.value = imageItems.value.filter(item => item.id !== id)
+  if (!activeCut.value) return
+  activeCut.value.imageItems = activeCut.value.imageItems.filter(item => item.id !== id)
 }
 
 // 画像ファイルの選択
 const handleImageUpload = (event: Event, itemId: number) => {
+  if (!activeCut.value) return
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   if (file && file.type.startsWith('image/')) {
-    const item = imageItems.value.find(i => i.id === itemId)
+    const item = activeCut.value.imageItems.find(i => i.id === itemId)
     if (item) {
       item.file = file
       item.url = URL.createObjectURL(file)
@@ -958,7 +1254,9 @@ const applyOverlays = async () => {
       throw new Error('Failed to read output file: No data available')
     }
     const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' })
-    finalVideoUrl.value = URL.createObjectURL(blob)
+    if (cut) {
+      cut.finalVideoUrl = URL.createObjectURL(blob)
+    }
     console.log('[Overlay] Final video created, size:', blob.size)
     
     // 一時ファイルを削除
@@ -993,16 +1291,125 @@ const isTrimmed = computed(() => {
 
 // トリミングを実行できるかチェック
 const canTrim = computed(() => {
-  return videoUrl.value !== null && 
-         videoFile.value !== null && 
+  const cut = activeCut.value
+  return cut?.videoUrl !== null && 
+         cut?.videoFile !== null && 
          ffmpeg.value !== null && 
          isFFmpegLoaded.value &&
-         startTime.value >= 0 && 
-         startTime.value < endTime.value &&
-         endTime.value <= videoDuration.value &&
+         cut?.startTime >= 0 && 
+         cut?.startTime < cut?.endTime &&
+         cut?.endTime <= cut?.videoDuration &&
          !isTrimming.value &&
          !isFFmpegLoading.value
 })
+
+// 完成動画のダウンロード
+const downloadFinalVideo = () => {
+  if (!finalVideoUrl.value) {
+    alert('完成動画がありません')
+    return
+  }
+  
+  const title = videoTitle.value.trim() || '動画'
+  const fileName = `${title}.mp4`
+  
+  const link = document.createElement('a')
+  link.href = finalVideoUrl.value
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// 完成ボタン：全てのカットを連結
+const completeVideo = async () => {
+  if (cuts.value.length === 0) {
+    alert('カットが1つもありません')
+    return
+  }
+  
+  // 全てのカットが編集済みかチェック
+  const uneditedCuts = cuts.value.filter(c => !c.finalVideoUrl && !c.trimmedVideoUrl)
+  if (uneditedCuts.length > 0) {
+    alert(`${uneditedCuts.length}個のカットがまだ編集されていません。全てのカットの編集を完了してください。`)
+    return
+  }
+  
+  if (!ffmpeg.value || !isFFmpegLoaded.value) {
+    alert('動画編集エンジンが読み込まれていません。しばらく待ってから再度お試しください。')
+    return
+  }
+  
+  try {
+    isCompleting.value = true
+    console.log('[Complete] Starting video concatenation')
+    
+    // 各カットの最終ファイルを取得（finalVideoUrlがあればそれ、なければtrimmedVideoUrl）
+    const videoFiles: string[] = []
+    for (let i = 0; i < cuts.value.length; i++) {
+      const cut = cuts.value[i]
+      const videoUrl = cut.finalVideoUrl || cut.trimmedVideoUrl
+      if (!videoUrl) continue
+      
+      // 動画をFFmpegに書き込む
+      const blob = await fetch(videoUrl).then(r => r.blob())
+      const file = new File([blob], `video${i}.mp4`, { type: 'video/mp4' })
+      const fileName = `input${i}.mp4`
+      await ffmpeg.value.writeFile(fileName, await fetchFile(file))
+      videoFiles.push(fileName)
+    }
+    
+    if (videoFiles.length === 0) {
+      throw new Error('連結する動画がありません')
+    }
+    
+    // concatファイルリストを作成
+    const concatContent = videoFiles.map(f => `file '${f}'`).join('\n')
+    const concatFileName = 'concat.txt'
+    await ffmpeg.value.writeFile(concatFileName, concatContent)
+    
+    // FFmpegで連結
+    const outputFileName = 'final.mp4'
+    const command = [
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', concatFileName,
+      '-c', 'copy',
+      outputFileName
+    ]
+    
+    console.log('[Complete] Executing FFmpeg concat command:', command.join(' '))
+    await ffmpeg.value.exec(command)
+    
+    // 出力ファイルを読み込む
+    const fileData = await ffmpeg.value.readFile(outputFileName)
+    const data = fileData instanceof Uint8Array ? fileData : (typeof fileData === 'string' ? new TextEncoder().encode(fileData) : new Uint8Array(fileData as unknown as ArrayBuffer))
+    const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' })
+    finalVideoUrl.value = URL.createObjectURL(blob)
+    
+    // 注意: 完成動画は自動保存されません（メディアライブラリには追加されません）
+    // ダウンロードボタンから手動でダウンロードできます
+    
+    // 一時ファイルを削除
+    try {
+      for (const file of videoFiles) {
+        await ffmpeg.value.deleteFile(file)
+      }
+      await ffmpeg.value.deleteFile(concatFileName)
+      await ffmpeg.value.deleteFile(outputFileName)
+    } catch (cleanupError) {
+      console.warn('[Complete] Cleanup error (non-critical):', cleanupError)
+    }
+    
+    alert('動画の連結が完了しました')
+  } catch (error: any) {
+    console.error('[Complete] Error concatenating videos:', error)
+    alert('動画の連結中にエラーが発生しました。\n\nブラウザのコンソール（F12キー）で詳細なエラーを確認できます。')
+  } finally {
+    isCompleting.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -1153,6 +1560,92 @@ const canTrim = computed(() => {
 
     <!-- メインコンテンツエリア -->
     <div class="main-content">
+      <!-- 動画タイトル入力 -->
+      <div class="video-title-section">
+        <input
+          v-model="videoTitle"
+          type="text"
+          placeholder="動画タイトル"
+          class="video-title-input"
+        />
+      </div>
+      
+      <!-- カットタブ -->
+      <div class="cuts-tabs">
+        <div class="tabs-container">
+          <div
+            v-for="cut in cuts"
+            :key="cut.id"
+            class="tab"
+            :class="{ 
+              active: activeCutId === cut.id, 
+              editing: editingCutId === cut.id,
+              dragging: draggedCutId === cut.id,
+              'drag-over': dragOverCutId === cut.id
+            }"
+            :draggable="editingCutId !== cut.id"
+            @click="selectCut(cut.id)"
+            @dblclick.stop="startEditingCutName(cut.id, $event)"
+            @dragstart="handleDragStart(cut.id, $event)"
+            @dragover="handleDragOver(cut.id, $event)"
+            @dragleave="handleDragLeave"
+            @drop="handleDrop(cut.id, $event)"
+            @dragend="handleDragEnd"
+          >
+            <svg 
+              v-if="!editingCutId || editingCutId !== cut.id"
+              class="drag-handle"
+              width="12" 
+              height="12" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2"
+              @mousedown.stop
+            >
+              <circle cx="9" cy="5" r="1"/>
+              <circle cx="9" cy="12" r="1"/>
+              <circle cx="9" cy="19" r="1"/>
+              <circle cx="15" cy="5" r="1"/>
+              <circle cx="15" cy="12" r="1"/>
+              <circle cx="15" cy="19" r="1"/>
+            </svg>
+            <input
+              v-if="editingCutId === cut.id"
+              v-model="cut.name"
+              @blur="finishEditingCutName(cut.id, cut.name)"
+              @keydown.enter="finishEditingCutName(cut.id, cut.name)"
+              @keydown.esc="cancelEditingCutName"
+              class="tab-name-input"
+              @click.stop
+            />
+            <span v-else>{{ cut.name }}</span>
+            <button
+              v-if="cuts.length > 1"
+              class="tab-remove-btn"
+              @click.stop="removeCut(cut.id)"
+              title="削除"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <div class="tabs-actions">
+          <button class="add-cut-btn" @click="addCut" title="カットを追加">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          <button 
+            class="complete-btn" 
+            @click="completeVideo" 
+            :disabled="isCompleting || cuts.length === 0"
+          >
+            {{ isCompleting ? '完成中...' : '完成' }}
+          </button>
+        </div>
+      </div>
+      
       <div class="video-section">
         <h1 class="app-title">マナベル</h1>
         
@@ -1321,6 +1814,11 @@ const canTrim = computed(() => {
               ×
             </button>
             <video :src="finalVideoUrl" controls class="video-preview"></video>
+          </div>
+          <div class="download-section">
+            <button class="download-btn" @click="downloadFinalVideo">
+              動画をダウンロード
+            </button>
           </div>
         </div>
 
@@ -1663,6 +2161,187 @@ const canTrim = computed(() => {
   overflow-y: auto;
 }
 
+/* 動画タイトルセクション */
+.video-title-section {
+  margin-bottom: 20px;
+}
+
+.video-title-input {
+  width: 100%;
+  max-width: 600px;
+  padding: 16px 20px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 20px;
+  font-weight: 500;
+  color: #333;
+  background: white;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.video-title-input:focus {
+  border-color: #9333ea;
+}
+
+.video-title-input::placeholder {
+  color: #999;
+}
+
+/* カットタブ */
+.cuts-tabs {
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.tabs-container {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.tab:hover {
+  color: #9333ea;
+  background: #f9fafb;
+}
+
+.tab.active {
+  color: #9333ea;
+  border-bottom-color: #9333ea;
+}
+
+.tab.editing {
+  padding: 12px 20px;
+}
+
+.tab-name-input {
+  border: 2px solid #9333ea;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  background: white;
+  outline: none;
+  min-width: 80px;
+  max-width: 200px;
+}
+
+.tab.dragging {
+  opacity: 0.5;
+}
+
+.tab.drag-over {
+  border-top: 2px solid #9333ea;
+}
+
+.drag-handle {
+  color: #999;
+  cursor: grab;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.tab:not(.editing):hover .drag-handle {
+  color: #9333ea;
+}
+
+.tab-remove-btn {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.tab-remove-btn:hover {
+  background: #fecaca;
+}
+
+.tabs-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-left: 20px;
+  border-left: 1px solid #e0e0e0;
+}
+
+.add-cut-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  background: white;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.add-cut-btn:hover {
+  background: #f5f5f5;
+  border-color: #9333ea;
+  color: #9333ea;
+}
+
+.complete-btn {
+  padding: 8px 20px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.complete-btn:hover:not(:disabled) {
+  background: #7e22ce;
+}
+
+.complete-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
 .app-title {
   font-size: 32px;
   color: #333;
@@ -1945,6 +2624,52 @@ const canTrim = computed(() => {
   margin: 0 0 15px 0;
   font-size: 18px;
   color: #9333ea;
+}
+
+.download-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.download-btn {
+  padding: 12px 32px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.download-btn:hover {
+  background: #7e22ce;
+}
+
+.download-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.download-btn {
+  padding: 12px 32px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.download-btn:hover {
+  background: #7e22ce;
 }
 
 .info-message {
