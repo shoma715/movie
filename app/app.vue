@@ -145,6 +145,8 @@ const imageItems = computed({
 // メディアライブラリ関連
 const showMediaLibrary = ref(false)
 const uploadedVideos = ref<Array<{ id: string; url: string; name: string }>>([])
+const isLoadingMediaLibrary = ref(false)
+const mediaLibraryError = ref<string | null>(null)
 
 // プレビュー用（トリミング後動画の現在時間）
 const trimmedVideoCurrentTime = ref(0)
@@ -494,13 +496,21 @@ onMounted(async () => {
 
 // Supabaseからメディアライブラリを読み込む
 const loadMediaLibrary = async () => {
+  isLoadingMediaLibrary.value = true
+  mediaLibraryError.value = null
+  
   try {
+    console.log('[MediaLibrary] Loading media library...')
+    
     // Supabaseが利用可能か確認
     if (!supabase) {
       console.warn('[MediaLibrary] Supabase client not available')
+      uploadedVideos.value = []
+      mediaLibraryError.value = 'Supabase接続が利用できません'
       return
     }
     
+    console.log('[MediaLibrary] Fetching video list from Supabase...')
     const { data, error } = await supabase.storage
       .from('videos')
       .list('', {
@@ -509,19 +519,35 @@ const loadMediaLibrary = async () => {
       })
     
     if (error) {
+      console.error('[MediaLibrary] Error fetching videos:', error)
       // ストレージバケットが存在しない場合などは警告のみ
-      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
+      if (error.message?.includes('not found') || error.message?.includes('does not exist') || error.message?.includes('Bucket not found')) {
         console.warn('[MediaLibrary] Storage bucket "videos" does not exist. This is OK if you haven\'t set up Supabase storage yet.')
+        uploadedVideos.value = []
+        mediaLibraryError.value = 'Supabaseストレージバケット「videos」が設定されていません。メディアライブラリ機能を使用するには、Supabaseでストレージバケットを作成してください。'
         return
       }
+      
+      // RLSポリシーエラーの場合
+      if (error.message?.includes('row-level security policy') || error.message?.includes('RLS')) {
+        console.warn('[MediaLibrary] Row Level Security policy error.')
+        uploadedVideos.value = []
+        mediaLibraryError.value = 'SupabaseストレージのRow Level Security (RLS)ポリシーが設定されていません。メディアライブラリ機能を使用するには、Supabaseでストレージバケット「videos」のRLSポリシーを設定してください。'
+        return
+      }
+      
       throw error
     }
+    
+    console.log('[MediaLibrary] Found videos:', data?.length || 0)
     
     uploadedVideos.value = (data || []).map((file) => ({
       id: file.id || file.name,
       name: file.name,
       url: '' // URLは後で取得
     }))
+    
+    console.log('[MediaLibrary] Mapped videos:', uploadedVideos.value.length)
     
     // 各動画のURLを取得
     for (const video of uploadedVideos.value) {
@@ -531,18 +557,26 @@ const loadMediaLibrary = async () => {
           .getPublicUrl(video.name)
         if (urlData) {
           video.url = urlData.publicUrl
+          console.log('[MediaLibrary] Got URL for:', video.name)
         }
       } catch (urlError) {
         console.warn(`[MediaLibrary] Could not get URL for ${video.name}:`, urlError)
       }
     }
+    
+    console.log('[MediaLibrary] Media library loaded successfully. Total videos:', uploadedVideos.value.length)
   } catch (error: any) {
+    console.error('[MediaLibrary] Error loading media library:', error)
     // ネットワークエラーやSupabase接続エラーは警告のみ（アプリは動作可能）
     if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_NAME_NOT_RESOLVED')) {
       console.warn('[MediaLibrary] Could not connect to Supabase. Media library feature will be unavailable, but video editing will still work.')
+      mediaLibraryError.value = 'Supabaseに接続できません。インターネット接続を確認してください。'
     } else {
-      console.error('[MediaLibrary] Error loading media library:', error)
+      mediaLibraryError.value = `エラー: ${error?.message || '不明なエラー'}`
     }
+    uploadedVideos.value = []
+  } finally {
+    isLoadingMediaLibrary.value = false
   }
 }
 
@@ -584,10 +618,17 @@ const handleVideoUpload = async (event: Event) => {
 // 完成動画やトリミング後の動画は自動保存されません
 const uploadVideoToSupabase = async (file: File) => {
   try {
+    // Supabaseが利用可能か確認
+    if (!supabase) {
+      console.warn('[Upload] Supabase client not available, skipping upload')
+      return
+    }
+    
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
     const filePath = fileName
     
+    console.log('[Upload] Uploading video to Supabase:', fileName)
     const { error: uploadError } = await supabase.storage
       .from('videos')
       .upload(filePath, file, {
@@ -595,13 +636,35 @@ const uploadVideoToSupabase = async (file: File) => {
         upsert: false
       })
     
-    if (uploadError) throw uploadError
+    if (uploadError) {
+      console.error('[Upload] Upload error:', uploadError)
+      
+      // バケットが存在しない場合の特別な処理
+      if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
+        console.warn('[Upload] Storage bucket "videos" does not exist. Video will work locally but won\'t be saved to media library.')
+        // エラーをスローせず、ローカルでのみ使用可能にする
+        return
+      }
+      
+      // RLSポリシーエラーの場合の特別な処理
+      if (uploadError.message?.includes('row-level security policy') || uploadError.message?.includes('RLS')) {
+        console.warn('[Upload] Row Level Security policy error. Video will work locally but won\'t be saved to media library.')
+        console.warn('[Upload] Please check Supabase Storage policies for the "videos" bucket.')
+        // エラーをスローせず、ローカルでのみ使用可能にする
+        return
+      }
+      
+      throw uploadError
+    }
+    
+    console.log('[Upload] Video uploaded successfully:', fileName)
     
     // メディアライブラリを更新（アップロードした動画のみが表示される）
     await loadMediaLibrary()
-  } catch (error) {
-    console.error('Error uploading video:', error)
+  } catch (error: any) {
+    console.error('[Upload] Error uploading video:', error)
     // エラーが発生しても続行（ローカルで使用可能）
+    // ただし、メディアライブラリには表示されません
   }
 }
 
@@ -890,7 +953,11 @@ const togglePanel = (panel: 'text' | 'image' | null) => {
 }
 
 // メディアライブラリを開く
-const openMediaLibrary = () => {
+const openMediaLibrary = async () => {
+  console.log('[MediaLibrary] Opening media library...')
+  // メディアライブラリを開く前に最新の状態を読み込む
+  await loadMediaLibrary()
+  console.log('[MediaLibrary] Current videos count:', uploadedVideos.value.length)
   showMediaLibrary.value = true
 }
 
@@ -1836,8 +1903,34 @@ const completeVideo = async () => {
           <h2>メディアから選択</h2>
           <button class="close-btn" @click="showMediaLibrary = false">×</button>
         </div>
+        <!-- ローディング中 -->
+        <div v-if="isLoadingMediaLibrary" class="loading-message">
+          <p>メディアライブラリを読み込んでいます...</p>
+        </div>
+        
+        <!-- エラーメッセージ -->
+        <div v-else-if="mediaLibraryError" class="error-message">
+          <p><strong>エラー</strong></p>
+          <p>{{ mediaLibraryError }}</p>
+          <div v-if="mediaLibraryError.includes('RLS') || mediaLibraryError.includes('row-level security')" class="error-instructions">
+            <p><strong>設定方法：</strong></p>
+            <ol>
+              <li>Supabaseダッシュボードにログイン</li>
+              <li>「Storage」→「Policies」に移動</li>
+              <li>「videos」バケットのポリシーを設定：
+                <ul>
+                  <li><strong>INSERT</strong>: 認証済みユーザーがアップロード可能</li>
+                  <li><strong>SELECT</strong>: 認証済みユーザーが読み取り可能</li>
+                </ul>
+              </li>
+              <li>または、バケットを「Public」に設定して全員がアクセス可能にする</li>
+            </ol>
+          </div>
+          <button class="retry-btn" @click="loadMediaLibrary">再試行</button>
+        </div>
+        
         <!-- メディア一覧（件数に応じて表示を切り替え） -->
-        <div v-if="uploadedVideos.length > 0" class="media-grid">
+        <div v-else-if="uploadedVideos.length > 0" class="media-grid">
           <div
             v-for="video in uploadedVideos"
             :key="video.id"
@@ -2792,5 +2885,50 @@ const completeVideo = async () => {
   color: #555;
   background: #f9fafb;
   border-radius: 8px;
+}
+
+.retry-btn {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-btn:hover {
+  background: #7e22ce;
+}
+
+.error-instructions {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f9fafb;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.error-instructions p {
+  margin: 0 0 10px 0;
+}
+
+.error-instructions ol {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+
+.error-instructions ul {
+  margin: 5px 0;
+  padding-left: 20px;
+}
+
+.error-instructions li {
+  margin: 5px 0;
 }
 </style>
