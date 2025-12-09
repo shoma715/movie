@@ -42,6 +42,9 @@ const trimmedVideoCurrentTime = ref(0)
 // トリミング後動画プレイヤーの参照
 const trimmedVideoRef = ref<HTMLVideoElement | null>(null)
 
+// 元動画の折りたたみ状態
+const isOriginalVideoCollapsed = ref(false)
+
 // 元動画のリセット
 const clearVideo = () => {
   console.log('[Video] clearVideo called')
@@ -1166,9 +1169,26 @@ const canTrim = computed(() => {
             <span>+ 動画をアップロード</span>
           </label>
 
-          <!-- 動画があるとき：プレイヤー＋×ボタンを表示（labelの外に出す） -->
-          <div v-else class="video-upload-label">
-            <div class="video-preview-wrapper">
+          <!-- 動画があるとき：折りたたみ可能なセクション -->
+          <div v-else class="original-video-section">
+            <div class="original-video-header" @click="isOriginalVideoCollapsed = !isOriginalVideoCollapsed">
+              <h3>
+                <span>トリミング前の動画</span>
+                <svg 
+                  class="collapse-icon" 
+                  :class="{ collapsed: isOriginalVideoCollapsed }"
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  stroke-width="2"
+                >
+                  <path d="M6 9l6 6 6-6"/>
+                </svg>
+              </h3>
+            </div>
+            <div v-if="!isOriginalVideoCollapsed" class="video-preview-wrapper">
               <button
                 class="video-close-btn"
                 type="button"
@@ -1185,7 +1205,7 @@ const canTrim = computed(() => {
         </div>
 
         <!-- トリミング設定 -->
-        <div v-if="videoUrl" class="trim-section">
+        <div v-if="videoUrl && !isOriginalVideoCollapsed" class="trim-section">
           <h3>動画のトリミング</h3>
           <div class="time-inputs">
             <div class="time-input-group">
@@ -1722,6 +1742,45 @@ const canTrim = computed(() => {
   width: 100%;
   max-height: 600px;
   border-radius: 12px;
+}
+
+/* 元動画セクション */
+.original-video-section {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+}
+
+.original-video-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 15px;
+}
+
+.original-video-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapse-icon {
+  transition: transform 0.3s ease;
+  color: #666;
+}
+
+.collapse-icon.collapsed {
+  transform: rotate(-90deg);
+}
+
+.original-video-section .video-preview-wrapper {
+  margin-top: 0;
 }
 
 /* トリミング後プレビュー用オーバーレイ */
