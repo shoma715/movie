@@ -67,6 +67,10 @@ const editingCutId = ref<number | null>(null)
 const draggedCutId = ref<number | null>(null)
 const dragOverCutId = ref<number | null>(null)
 
+// テキストアイテムのドラッグ&ドロップ関連
+const draggedTextItemId = ref<number | null>(null)
+const dragOverTextItemId = ref<number | null>(null)
+
 // 動画タイトル
 const videoTitle = ref<string>('')
 
@@ -126,6 +130,10 @@ const isOriginalVideoCollapsed = computed({
 // パネルの表示状態
 const activePanel = ref<'text' | 'image' | null>(null)
 
+// テキストサイズ（全テキストに適用）
+type TextSize = 'small' | 'medium' | 'large'
+const textSize = ref<TextSize>('medium')
+
 // テキスト挿入関連（現在選択中のカットから取得）
 const textItems = computed({
   get: () => activeCut.value?.textItems || [],
@@ -153,6 +161,10 @@ const trimmedVideoCurrentTime = ref(0)
 
 // トリミング後動画プレイヤーの参照
 const trimmedVideoRef = ref<HTMLVideoElement | null>(null)
+
+// 動画のサイズ（幅と高さ）
+const videoWidth = ref<number>(1920) // デフォルト値
+const videoHeight = ref<number>(1080) // デフォルト値
 
 // カットの追加
 const addCut = () => {
@@ -347,6 +359,21 @@ const clearFinalVideo = () => {
 const handleTrimmedTimeUpdate = (event: Event) => {
   const video = event.target as HTMLVideoElement
   trimmedVideoCurrentTime.value = video.currentTime || 0
+  
+  // 動画のサイズを取得
+  if (video.videoWidth && video.videoHeight) {
+    videoWidth.value = video.videoWidth
+    videoHeight.value = video.videoHeight
+  }
+}
+
+// 動画のメタデータ読み込み時にサイズを取得
+const handleVideoLoadedMetadata = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  if (video.videoWidth && video.videoHeight) {
+    videoWidth.value = video.videoWidth
+    videoHeight.value = video.videoHeight
+  }
 }
 
 // 現在時間に表示すべきテキストオーバーレイ
@@ -373,17 +400,180 @@ const activeImageOverlays = computed(() => {
   )
 })
 
-// 画像オーバーレイの位置スタイルを返す（画面を4分割した各エリアの中央）
-const getImageOverlayStyle = (position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
+// 画像のサイズを計算（動画サイズの1/2を最大値として、アスペクト比を維持）
+const calculateImageSize = (imageWidth: number, imageHeight: number) => {
+  const maxWidth = videoWidth.value / 2
+  const maxHeight = videoHeight.value / 2
+  
+  // アスペクト比を計算
+  const aspectRatio = imageWidth / imageHeight
+  
+  let finalWidth = imageWidth
+  let finalHeight = imageHeight
+  
+  // 最大サイズを超える場合、アスペクト比を維持してリサイズ
+  if (imageWidth > maxWidth || imageHeight > maxHeight) {
+    const widthRatio = maxWidth / imageWidth
+    const heightRatio = maxHeight / imageHeight
+    const ratio = Math.min(widthRatio, heightRatio)
+    
+    finalWidth = imageWidth * ratio
+    finalHeight = imageHeight * ratio
+  }
+  
+  return { width: finalWidth, height: finalHeight }
+}
+
+// 画像サイズを保存するためのref
+const imageSizes = ref<Map<number, { width: number; height: number }>>(new Map())
+
+// 画像のサイズを更新
+const updateImageSize = (img: HTMLImageElement, itemId: number) => {
+  if (img.naturalWidth && img.naturalHeight) {
+    // 元の画像サイズを保存（動画サイズに基づいて計算するため）
+    imageSizes.value.set(itemId, {
+      width: img.naturalWidth,
+      height: img.naturalHeight
+    })
+  }
+}
+
+// 画像オーバーレイの位置スタイルを返す（computedでリアクティブに更新）
+const getImageOverlayStyle = (position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right', itemId: number, imageUrl?: string | null) => {
+  // 動画のサイズを取得（プレビュー用）
+  const video = trimmedVideoRef.value
+  let vWidth = videoWidth.value
+  let vHeight = videoHeight.value
+  
+  if (video && video.videoWidth && video.videoHeight) {
+    vWidth = video.videoWidth
+    vHeight = video.videoHeight
+  }
+  
+  // 画像のサイズを取得
+  let imgWidth = 200 // デフォルト値
+  let imgHeight = 200 // デフォルト値
+  
+  // 既に読み込まれている画像のサイズを使用
+  if (imageSizes.value.has(itemId)) {
+    const size = imageSizes.value.get(itemId)!
+    imgWidth = size.width
+    imgHeight = size.height
+  } else if (imageUrl) {
+    // 画像がまだ読み込まれていない場合、デフォルト値を使用
+    // 実際のサイズはupdateImageSizeで更新される
+  }
+  
+  // 動画サイズの1/2を最大値として計算
+  const maxWidth = vWidth / 2
+  const maxHeight = vHeight / 2
+  
+  // アスペクト比を維持してリサイズ
+  let finalWidth = imgWidth
+  let finalHeight = imgHeight
+  
+  // 動画サイズの1/2を超えないようにリサイズ（アスペクト比を維持）
+  const widthRatio = maxWidth / imgWidth
+  const heightRatio = maxHeight / imgHeight
+  const ratio = Math.min(widthRatio, heightRatio)
+  
+  finalWidth = imgWidth * ratio
+  finalHeight = imgHeight * ratio
+  
+  // 最終的な保証（確実に1/2以下にする）
+  finalWidth = Math.min(finalWidth, maxWidth)
+  finalHeight = Math.min(finalHeight, maxHeight)
+  
+  // プレビュー用のサイズ（動画要素の実際の表示サイズに合わせる）
+  const videoElement = trimmedVideoRef.value
+  let scaleX = 1
+  let scaleY = 1
+  
+  if (videoElement) {
+    const rect = videoElement.getBoundingClientRect()
+    if (videoElement.videoWidth && videoElement.videoHeight) {
+      scaleX = rect.width / videoElement.videoWidth
+      scaleY = rect.height / videoElement.videoHeight
+    }
+  }
+  
+  const displayWidth = finalWidth * scaleX
+  const displayHeight = finalHeight * scaleY
+  
+  // 画像が動画の高さを超えないようにする（動画要素の実際の表示高さに合わせる）
+  const videoDisplayHeight = videoElement ? videoElement.getBoundingClientRect().height : vHeight * scaleY
+  const maxDisplayHeight = videoDisplayHeight
+  let adjustedDisplayHeight = Math.min(displayHeight, maxDisplayHeight)
+  let adjustedDisplayWidth = displayWidth * (adjustedDisplayHeight / displayHeight)
+  
+  // 横幅も動画の幅の1/2を超えないようにする
+  const videoDisplayWidth = videoElement ? videoElement.getBoundingClientRect().width : vWidth * scaleX
+  const maxDisplayWidth = videoDisplayWidth / 2
+  if (adjustedDisplayWidth > maxDisplayWidth) {
+    const widthRatio = maxDisplayWidth / adjustedDisplayWidth
+    adjustedDisplayWidth = adjustedDisplayWidth * widthRatio
+    adjustedDisplayHeight = adjustedDisplayHeight * widthRatio
+  }
+  
+  // 縦幅も動画の高さの1/2を超えないようにする
+  const maxDisplayHeightLimit = videoDisplayHeight / 2
+  if (adjustedDisplayHeight > maxDisplayHeightLimit) {
+    const heightRatio = maxDisplayHeightLimit / adjustedDisplayHeight
+    adjustedDisplayWidth = adjustedDisplayWidth * heightRatio
+    adjustedDisplayHeight = adjustedDisplayHeight * heightRatio
+  }
+  
+  // 画像が動画の高さを超えないようにする（確実に動画内に収める）
+  if (adjustedDisplayHeight > videoDisplayHeight) {
+    const heightRatio = videoDisplayHeight / adjustedDisplayHeight
+    adjustedDisplayWidth = adjustedDisplayWidth * heightRatio
+    adjustedDisplayHeight = videoDisplayHeight
+  }
+  
+  const widthPx = `${adjustedDisplayWidth}px`
+  const heightPx = `${adjustedDisplayHeight}px`
+  
   switch (position) {
     case 'top-left':
-      return { top: '25%', left: '25%', transform: 'translate(-50%, -50%)' }
+      return { 
+        top: '0', 
+        left: '0', 
+        width: widthPx,
+        height: heightPx,
+        transform: 'none',
+        maxHeight: '100%',
+        maxWidth: '100%'
+      }
     case 'top-right':
-      return { top: '25%', left: '75%', transform: 'translate(-50%, -50%)' }
+      return { 
+        top: '0', 
+        right: '0', 
+        width: widthPx,
+        height: heightPx,
+        transform: 'none',
+        maxHeight: '100%',
+        maxWidth: '100%'
+      }
     case 'bottom-left':
-      return { top: '75%', left: '25%', transform: 'translate(-50%, -50%)' }
+      return { 
+        bottom: '0', 
+        left: '0', 
+        width: widthPx,
+        height: heightPx,
+        transform: 'none',
+        maxHeight: '100%',
+        maxWidth: '100%'
+      }
     case 'bottom-right':
-      return { top: '75%', left: '75%', transform: 'translate(-50%, -50%)' }
+      return { 
+        bottom: '0', 
+        right: '0', 
+        width: widthPx,
+        height: heightPx,
+        transform: 'none',
+        maxHeight: '100%',
+        maxWidth: '100%'
+      }
   }
 }
 
@@ -904,6 +1094,61 @@ const removeTextItem = (id: number) => {
   activeCut.value.textItems = activeCut.value.textItems.filter(item => item.id !== id)
 }
 
+// テキストアイテムのドラッグ開始
+const handleTextItemDragStart = (itemId: number, event: DragEvent) => {
+  draggedTextItemId.value = itemId
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', '')
+  }
+}
+
+// テキストアイテムのドラッグオーバー
+const handleTextItemDragOver = (itemId: number, event: DragEvent) => {
+  if (draggedTextItemId.value === null || draggedTextItemId.value === itemId) {
+    return
+  }
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverTextItemId.value = itemId
+}
+
+// テキストアイテムのドラッグリーブ
+const handleTextItemDragLeave = () => {
+  dragOverTextItemId.value = null
+}
+
+// テキストアイテムのドロップ
+const handleTextItemDrop = (itemId: number, event: DragEvent) => {
+  event.preventDefault()
+  if (!activeCut.value) return
+  if (draggedTextItemId.value === null || draggedTextItemId.value === itemId) {
+    draggedTextItemId.value = null
+    dragOverTextItemId.value = null
+    return
+  }
+  
+  const draggedIndex = activeCut.value.textItems.findIndex(item => item.id === draggedTextItemId.value)
+  const dropIndex = activeCut.value.textItems.findIndex(item => item.id === itemId)
+  
+  if (draggedIndex !== -1 && dropIndex !== -1) {
+    // テキストアイテムの順番を変更
+    const [draggedItem] = activeCut.value.textItems.splice(draggedIndex, 1)
+    activeCut.value.textItems.splice(dropIndex, 0, draggedItem)
+  }
+  
+  draggedTextItemId.value = null
+  dragOverTextItemId.value = null
+}
+
+// テキストアイテムのドラッグ終了
+const handleTextItemDragEnd = () => {
+  draggedTextItemId.value = null
+  dragOverTextItemId.value = null
+}
+
 // AI文字起こし（プレースホルダー）
 const transcribeAudio = async () => {
   if (!videoFile.value && !videoUrl.value) {
@@ -996,6 +1241,39 @@ const applyOverlays = async () => {
     await ffmpeg.value.writeFile(inputFileName, await fetchFile(trimmedFile))
     console.log('[Overlay] Input video written')
     
+    // 動画のサイズを取得（video要素から取得）
+    let actualVideoWidth = videoWidth.value
+    let actualVideoHeight = videoHeight.value
+    
+    // トリミング後の動画のvideo要素からサイズを取得
+    if (trimmedVideoRef.value && trimmedVideoRef.value.videoWidth && trimmedVideoRef.value.videoHeight) {
+      actualVideoWidth = trimmedVideoRef.value.videoWidth
+      actualVideoHeight = trimmedVideoRef.value.videoHeight
+      console.log('[Overlay] Video size from video element:', actualVideoWidth, 'x', actualVideoHeight)
+    } else {
+      // video要素から取得できない場合、保存されている値を使用
+      console.warn('[Overlay] Video size not available from video element, using stored values:', actualVideoWidth, 'x', actualVideoHeight)
+      // 動画ファイルから直接サイズを取得する試み
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      video.src = trimmedVideoUrl.value
+      await new Promise<void>((resolve) => {
+        video.onloadedmetadata = () => {
+          if (video.videoWidth && video.videoHeight) {
+            actualVideoWidth = video.videoWidth
+            actualVideoHeight = video.videoHeight
+            console.log('[Overlay] Video size from video file:', actualVideoWidth, 'x', actualVideoHeight)
+          }
+          resolve()
+        }
+        video.onerror = () => resolve()
+        // タイムアウト
+        setTimeout(() => resolve(), 1000)
+      })
+    }
+    
+    console.log('[Overlay] Using video size for image calculation:', actualVideoWidth, 'x', actualVideoHeight)
+    
     // 画像ファイルをFFmpegに書き込む
     const imageFiles: string[] = []
     for (let i = 0; i < imageItems.value.length; i++) {
@@ -1013,16 +1291,26 @@ const applyOverlays = async () => {
     const textFilters: string[] = []
     const imageOverlays: Array<{ file: string; x: string; y: string; startTime: number; endTime: number }> = []
     
+    // テキストサイズに応じたフォントサイズを決定
+    const fontSizeMap = {
+      small: 24,
+      medium: 32,
+      large: 40
+    }
+    const fontSize = fontSizeMap[textSize.value]
+    
     // テキストオーバーレイを追加
     textItems.value.forEach((item) => {
       if (item.text.trim() !== '' && item.startTime >= 0 && item.endTime > item.startTime) {
-        const escapedText = item.text.replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/\[/g, '\\[').replace(/\]/g, '\\]')
+        // 改行を\nに変換（textareaの改行をFFmpegで処理できるように）
+        const textWithNewlines = item.text.replace(/\n/g, '\\n')
+        const escapedText = textWithNewlines.replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/\[/g, '\\[').replace(/\]/g, '\\]')
         // フォントファイルを指定（FFmpeg.wasmにはデフォルトフォントがないため必須）
         // トリミング後プレビューと同じ見た目にするため、黒縁なし・シャドウのみ
         const textFilter =
           `drawtext=fontfile=${fontName}:` +
           `text='${escapedText}':` +
-          `fontsize=24:` +
+          `fontsize=${fontSize}:` +
           `fontcolor=white:` +
           `shadowcolor=black@0.6:` +
           `shadowx=1:` +
@@ -1034,29 +1322,105 @@ const applyOverlays = async () => {
       }
     })
     
-    // 画像オーバーレイ情報を収集（画面を4分割した各エリアの中央に配置）
-    imageItems.value.forEach((item, index) => {
+    // 画像オーバーレイ情報を収集（サイズを動画の1/2に制限、位置を画面端に合わせる）
+    for (let index = 0; index < imageItems.value.length; index++) {
+      const item = imageItems.value[index]
       if (item.file && item.startTime >= 0 && item.endTime > item.startTime) {
-        // FFmpegのoverlayでも同じ座標式を使用
-        let x = 'W/4-w/2'
-        let y = 'H/4-h/2'
+        // 画像のサイズを計算（動画サイズの1/2を最大値として、アスペクト比を維持）
+        // 実際の動画サイズを使用
+        const maxWidth = Math.floor(actualVideoWidth / 2)
+        const maxHeight = Math.floor(actualVideoHeight / 2)
+        
+        console.log('[Overlay] Image size calculation start:', {
+          videoSize: { width: actualVideoWidth, height: actualVideoHeight },
+          maxSize: { width: maxWidth, height: maxHeight }
+        })
+        
+        // 画像の元のサイズを取得（Image要素から、非同期で読み込む）
+        let imgWidth = 200 // デフォルト値
+        let imgHeight = 200 // デフォルト値
+        
+        if (item.url) {
+          // 画像を読み込んでサイズを取得
+          await new Promise<void>((resolve) => {
+            const img = new Image()
+            img.onload = () => {
+              imgWidth = img.naturalWidth || img.width || 200
+              imgHeight = img.naturalHeight || img.height || 200
+              resolve()
+            }
+            img.onerror = () => {
+              resolve() // エラーでも続行
+            }
+            img.src = item.url!
+          })
+        }
+        
+        // アスペクト比を維持してリサイズ（動画サイズの1/2を最大値として）
+        // maxWidthとmaxHeightは既に動画サイズの1/2なので、これを使用
+        // 横幅と縦幅の両方が1/2を超えないようにする（アスペクト比を維持）
+        const widthRatio = maxWidth / imgWidth
+        const heightRatio = maxHeight / imgHeight
+        // より厳しい制限を適用（小さい方の比率を使用）
+        const ratio = Math.min(widthRatio, heightRatio)
+        
+        let finalAdjustedWidth = Math.floor(imgWidth * ratio)
+        let finalAdjustedHeight = Math.floor(imgHeight * ratio)
+        
+        // 最終的な保証（確実に1/2以下にする）
+        // 横幅と縦幅の両方がmaxWidthとmaxHeightを超えないことを保証
+        if (finalAdjustedWidth > maxWidth) {
+          const adjustRatio = maxWidth / finalAdjustedWidth
+          finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
+          finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
+        }
+        if (finalAdjustedHeight > maxHeight) {
+          const adjustRatio = maxHeight / finalAdjustedHeight
+          finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
+          finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
+        }
+        
+        // 最終的な保証（念のため、確実に1/2以下にする）
+        finalAdjustedWidth = Math.min(finalAdjustedWidth, maxWidth)
+        finalAdjustedHeight = Math.min(finalAdjustedHeight, maxHeight)
+        
+        console.log('[Overlay] Image size calculation:', {
+          original: { width: imgWidth, height: imgHeight },
+          maxAllowed: { width: maxWidth, height: maxHeight },
+          final: { width: finalAdjustedWidth, height: finalAdjustedHeight },
+          videoSize: { width: actualVideoWidth, height: actualVideoHeight },
+          ratio: { 
+            width: finalAdjustedWidth / actualVideoWidth, 
+            height: finalAdjustedHeight / actualVideoHeight,
+            maxWidthRatio: maxWidth / actualVideoWidth,
+            maxHeightRatio: maxHeight / actualVideoHeight
+          },
+          isWithinLimit: {
+            width: finalAdjustedWidth <= maxWidth,
+            height: finalAdjustedHeight <= maxHeight
+          }
+        })
+        
+        // 位置を設定（画面端に合わせる）
+        let x = '0'
+        let y = '0'
 
         switch (item.position) {
           case 'top-left':
-            x = 'W/4-w/2'
-            y = 'H/4-h/2'
+            x = '0'
+            y = '0'
             break
           case 'top-right':
-            x = '3*W/4-w/2'
-            y = 'H/4-h/2'
+            x = `W-${finalAdjustedWidth}`
+            y = '0'
             break
           case 'bottom-left':
-            x = 'W/4-w/2'
-            y = '3*H/4-h/2'
+            x = '0'
+            y = `H-${finalAdjustedHeight}`
             break
           case 'bottom-right':
-            x = '3*W/4-w/2'
-            y = '3*H/4-h/2'
+            x = `W-${finalAdjustedWidth}`
+            y = `H-${finalAdjustedHeight}`
             break
         }
 
@@ -1066,12 +1430,14 @@ const applyOverlays = async () => {
             file: imageFile,
             x,
             y,
+            width: finalAdjustedWidth,
+            height: finalAdjustedHeight,
             startTime: item.startTime,
             endTime: item.endTime
           })
         }
       }
-    })
+    }
     
     // フィルターコンプレックスを構築
     let filterComplex = ''
@@ -1089,15 +1455,24 @@ const applyOverlays = async () => {
       step++
     }
     
-    // 画像オーバーレイを適用
+    // 画像オーバーレイを適用（画像をリサイズしてからオーバーレイ）
     imageOverlays.forEach((overlay, index) => {
       const inputIndex = index + 1
-      // overlayフィルターの構文を修正（入力ラベルを正しく指定）
-      const overlayFilter = `${currentVideoLabel}[${inputIndex}:v]overlay=${overlay.x}:${overlay.y}:enable='between(t,${overlay.startTime},${overlay.endTime})'[v${step}]`
+      const scaledImageLabel = `scaled${index}`
+      
+      // 画像をリサイズするフィルター（高速化のためflags=fast_bilinearを使用）
+      const scaleFilter = `[${inputIndex}:v]scale=${overlay.width}:${overlay.height}:flags=fast_bilinear[${scaledImageLabel}]`
+      
+      // オーバーレイフィルター（リサイズした画像を使用）
+      const overlayFilter = `${currentVideoLabel}[${scaledImageLabel}]overlay=${overlay.x}:${overlay.y}:enable='between(t,${overlay.startTime},${overlay.endTime})'[v${step}]`
+      
+      // スケールフィルターとオーバーレイフィルターを結合
+      const combinedFilter = `${scaleFilter};${overlayFilter}`
+      
       if (filterComplex) {
-        filterComplex += `;${overlayFilter}`
+        filterComplex += `;${combinedFilter}`
       } else {
-        filterComplex = overlayFilter
+        filterComplex = combinedFilter
       }
       currentVideoLabel = `[v${step}]`
       finalOutputLabel = `v${step}`
@@ -1136,8 +1511,9 @@ const applyOverlays = async () => {
       command.push('-map', '0:a?')
       command.push('-c:a', 'copy')
       command.push('-c:v', 'libx264')
-      command.push('-preset', 'fast')
-      command.push('-crf', '28') // 画質調整（軽くする）
+      command.push('-preset', 'ultrafast') // 処理速度を最優先
+      command.push('-crf', '30') // 画質と速度のバランス（28より少し低画質だが高速）
+      command.push('-threads', '0') // 全CPUコアを使用
       command.push('-movflags', '+faststart') // Web再生を最適化
       command.push('-y') // 出力ファイルを上書き
       command.push(outputFileName)
@@ -1321,9 +1697,13 @@ const applyOverlays = async () => {
       throw new Error('Failed to read output file: No data available')
     }
     const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' })
+    const cut = activeCut.value
+    const videoUrl = URL.createObjectURL(blob)
     if (cut) {
-      cut.finalVideoUrl = URL.createObjectURL(blob)
+      cut.finalVideoUrl = videoUrl
     }
+    // グローバルのfinalVideoUrlも更新（テンプレートで表示するため）
+    finalVideoUrl.value = videoUrl
     console.log('[Overlay] Final video created, size:', blob.size)
     
     // 一時ファイルを削除
@@ -1518,17 +1898,49 @@ const completeVideo = async () => {
           AI文字起こし
         </button>
         
-        <div v-for="(item, index) in textItems" :key="item.id" class="text-item">
-          <div class="text-item-header">
-            <span>テキスト{{ index + 1 }}</span>
-            <button class="remove-btn" @click="removeTextItem(item.id)">削除</button>
+        <!-- テキストサイズ選択 -->
+        <div class="text-size-selector">
+          <label>テキストサイズ</label>
+          <select v-model="textSize" class="text-size-select">
+            <option value="small">小</option>
+            <option value="medium">中</option>
+            <option value="large">大</option>
+          </select>
+        </div>
+        
+        <div 
+          v-for="(item, index) in textItems" 
+          :key="item.id" 
+          class="text-item"
+          :class="{
+            dragging: draggedTextItemId === item.id,
+            'drag-over': dragOverTextItemId === item.id
+          }"
+          @dragover="handleTextItemDragOver(item.id, $event)"
+          @dragleave="handleTextItemDragLeave"
+          @drop="handleTextItemDrop(item.id, $event)"
+        >
+          <div 
+            class="text-item-drag-handle"
+            :draggable="true"
+            @dragstart="handleTextItemDragStart(item.id, $event)"
+            @dragend="handleTextItemDragEnd"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="9" cy="5" r="1"/>
+              <circle cx="9" cy="12" r="1"/>
+              <circle cx="9" cy="19" r="1"/>
+              <circle cx="15" cy="5" r="1"/>
+              <circle cx="15" cy="12" r="1"/>
+              <circle cx="15" cy="19" r="1"/>
+            </svg>
           </div>
-          <input 
+          <textarea 
             v-model="item.text" 
-            type="text" 
             :placeholder="`テキスト${index + 1}`"
-            class="text-input"
-          />
+            class="text-textarea"
+            rows="3"
+          ></textarea>
           <div class="time-inputs">
             <div class="time-input-group">
               <label>開始</label>
@@ -1539,6 +1951,7 @@ const completeVideo = async () => {
                 min="0"
                 :max="videoDuration"
               />
+              <span class="time-unit">秒</span>
             </div>
             <div class="time-input-group">
               <label>終了</label>
@@ -1549,9 +1962,14 @@ const completeVideo = async () => {
                 min="0"
                 :max="videoDuration"
               />
+              <span class="time-unit">秒</span>
             </div>
           </div>
-          <button v-if="index < textItems.length - 1" class="add-separator">+</button>
+          <div class="text-item-actions">
+            <button class="time-btn delete-btn" @click="removeTextItem(item.id)">
+              削除
+            </button>
+          </div>
         </div>
         
         <button class="add-btn" @click="addTextItem">
@@ -1591,6 +2009,7 @@ const completeVideo = async () => {
                 min="0"
                 :max="videoDuration"
               />
+              <span class="time-unit">秒</span>
             </div>
             <div class="time-input-group">
               <label>終了</label>
@@ -1601,6 +2020,7 @@ const completeVideo = async () => {
                 min="0"
                 :max="videoDuration"
               />
+              <span class="time-unit">秒</span>
             </div>
           </div>
           <div class="image-upload-area">
@@ -1833,6 +2253,7 @@ const completeVideo = async () => {
                 v-for="item in activeTextOverlays"
                 :key="`text-preview-${item.id}`"
                 class="overlay-text"
+                :class="`text-size-${textSize}`"
               >
                 {{ item.text }}
               </div>
@@ -1842,12 +2263,13 @@ const completeVideo = async () => {
                 v-for="item in activeImageOverlays"
                 :key="`image-preview-${item.id}`"
                 class="overlay-image"
-                :style="getImageOverlayStyle(item.position)"
+                :style="getImageOverlayStyle(item.position, item.id, item.url || null)"
               >
                 <img
                   v-if="item.url"
                   :src="item.url"
                   alt="overlay"
+                  @load="(e) => updateImageSize(e.target as HTMLImageElement, item.id)"
                 />
               </div>
             </div>
@@ -2074,50 +2496,99 @@ const completeVideo = async () => {
   background: #7e22ce;
 }
 
-/* テキストアイテム */
-.text-item {
+/* テキストサイズセレクター */
+.text-size-selector {
   margin-bottom: 20px;
-}
-
-.text-item-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  gap: 10px;
 }
 
-.text-item-header span {
+.text-size-selector label {
+  font-size: 14px;
   font-weight: 600;
   color: #333;
 }
 
-.remove-btn {
-  background: #fee2e2;
-  color: #dc2626;
-  border: none;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
+.text-size-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
   cursor: pointer;
 }
 
-.remove-btn:hover {
-  background: #fecaca;
+.text-size-select:focus {
+  outline: none;
+  border-color: #9333ea;
 }
 
-.text-input {
+/* テキストアイテム */
+.text-item {
+  background: #f9fafb;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.text-item:hover {
+  background: #f3f4f6;
+}
+
+.text-item.dragging {
+  opacity: 0.5;
+}
+
+.text-item.drag-over {
+  border: 2px solid #9333ea;
+  background: #f3f4f6;
+}
+
+.text-item-drag-handle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  cursor: move;
+  color: #999;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.text-item-drag-handle:hover {
+  color: #9333ea;
+  background: #f0f0f0;
+}
+
+
+.text-textarea {
   width: 100%;
   padding: 10px;
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
   margin-bottom: 10px;
   box-sizing: border-box;
+  background: white;
+}
+
+.text-textarea:focus {
+  outline: none;
+  border-color: #9333ea;
 }
 
 .time-inputs {
   display: flex;
   gap: 10px;
+  margin-bottom: 10px;
 }
 
 .time-input-group {
@@ -2139,16 +2610,54 @@ const completeVideo = async () => {
   font-size: 14px;
 }
 
-.add-separator {
-  width: 100%;
-  text-align: center;
-  background: none;
-  border: none;
-  color: #9333ea;
-  font-size: 24px;
-  cursor: pointer;
+.time-unit {
+  font-size: 12px;
+  color: #666;
+}
+
+.text-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.time-btn {
+  flex: 1;
   padding: 10px;
-  margin: 10px 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  color: #333;
+}
+
+.time-btn:hover {
+  background: #f5f5f5;
+}
+
+.time-btn.start-btn:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+
+.time-btn.end-btn:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+
+.time-btn.delete-btn {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.time-btn.delete-btn:hover {
+  background: #fecaca;
+  border-color: #fca5a5;
 }
 
 /* 画像アイテム */
@@ -2560,6 +3069,7 @@ const completeVideo = async () => {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  overflow: hidden;
 }
 
 .overlay-text {
@@ -2568,23 +3078,39 @@ const completeVideo = async () => {
   bottom: 30px; /* FFmpegのy=h-th-40に近づけるため微調整 */
   transform: translateX(-50%);
   color: #fff;
-  font-size: 24px;              /* drawtextのfontsize=24に合わせる */
+  font-size: 24px;              /* デフォルトは小サイズ */
   max-width: 80%;
   text-align: center;
   word-break: break-word;
+  white-space: pre-line;         /* 改行を反映 */
   font-weight: normal;          /* FFmpeg側と統一（デフォルトの太さ） */
   /* FFmpeg側と同じシャドウ設定（shadowx=1, shadowy=1, shadowcolor=black@0.6） */
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
 }
 
+.overlay-text.text-size-small {
+  font-size: 24px;
+}
+
+.overlay-text.text-size-medium {
+  font-size: 32px;
+}
+
+.overlay-text.text-size-large {
+  font-size: 40px;
+}
+
 .overlay-image {
   position: absolute;
+  max-height: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .overlay-image img {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
@@ -2623,17 +3149,30 @@ const completeVideo = async () => {
 .trim-section .time-inputs {
   display: flex;
   gap: 15px;
-  align-items: flex-end;
 }
 
 .trim-section .time-input-group {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.trim-section .time-input-group label {
+  font-size: 12px;
+  color: #666;
+}
+
+.trim-section .time-input-group input {
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
 }
 
 .trim-section .time-unit {
-  margin-left: 5px;
+  font-size: 12px;
   color: #666;
-  font-size: 14px;
 }
 
 .trim-btn {
