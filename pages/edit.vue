@@ -2,8 +2,13 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
+import { createClient } from '@supabase/supabase-js'
 
-const supabase = useSupabaseClient()
+// Supabaseクライアントを直接作成（SPAモード用）
+const config = useRuntimeConfig()
+const supabaseUrl = config.public?.supabase?.url || ''
+const supabaseKey = config.public?.supabase?.key || ''
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null
 
 // FFmpeg関連
 const ffmpeg = ref<FFmpeg | null>(null)
@@ -1768,6 +1773,125 @@ const downloadFinalVideo = () => {
   document.body.removeChild(link)
 }
 
+// 完成動画をコースに保存
+const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
+  if (!supabase) {
+    console.warn('[Save] Supabase client not available, skipping save')
+    return
+  }
+
+  try {
+    // 現在のユーザー情報を取得
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      alert('ログインが必要です')
+      return
+    }
+
+    // 動画ファイル名を生成
+    const fileName = `completed-${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+    const filePath = `completed/${fileName}`
+
+    // Supabase Storageにアップロード
+    const { error: uploadError } = await supabase.storage
+      .from('videos')
+      .upload(filePath, videoBlob, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'video/mp4'
+      })
+
+    if (uploadError) {
+      console.error('[Save] Upload error:', uploadError)
+      // バケットが存在しない場合などは警告のみ
+      if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
+        console.warn('[Save] Storage bucket "videos" does not exist. Video will not be saved to course.')
+        return
+      }
+      throw uploadError
+    }
+
+    // 公開URLを取得
+    const { data: urlData } = await supabase.storage
+      .from('videos')
+      .getPublicUrl(filePath)
+
+    const videoUrl = urlData.publicUrl
+
+    // サムネイルを生成（動画の最初のフレーム）
+    let thumbnailUrl = null
+    try {
+      const video = document.createElement('video')
+      video.src = finalVideoUrl.value || ''
+      video.currentTime = 0.1
+      video.muted = true
+      video.playsInline = true
+      
+      await new Promise((resolve, reject) => {
+        video.onloadeddata = () => {
+          video.currentTime = 0.1
+          resolve(null)
+        }
+        video.onerror = reject
+        setTimeout(() => resolve(null), 2000) // タイムアウト
+      })
+      
+      await new Promise((resolve) => {
+        video.onseeked = resolve
+        setTimeout(resolve, 1000)
+      })
+      
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth || 640
+      canvas.height = video.videoHeight || 360
+      const ctx = canvas.getContext('2d')
+      if (ctx && video.videoWidth > 0) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const thumbBlob = await new Promise<Blob | null>((resolve) => {
+          canvas.toBlob(resolve, 'image/jpeg', 0.8)
+        })
+        
+        if (thumbBlob) {
+          const thumbFileName = `thumb-${Date.now()}.jpg`
+          const thumbPath = `thumbnails/${thumbFileName}`
+          const { error: thumbError } = await supabase.storage
+            .from('videos')
+            .upload(thumbPath, thumbBlob, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: 'image/jpeg'
+            })
+          if (!thumbError) {
+            const { data: thumbUrlData } = await supabase.storage
+              .from('videos')
+              .getPublicUrl(thumbPath)
+            thumbnailUrl = thumbUrlData.publicUrl
+          }
+        }
+      }
+    } catch (thumbError) {
+      console.warn('[Save] Failed to generate thumbnail:', thumbError)
+    }
+
+    // データベースに動画メタデータを保存（未分類として）
+    await $fetch('/api/videos', {
+      method: 'POST',
+      body: {
+        title: videoTitle.value || '無題の動画',
+        video_url: videoUrl,
+        thumbnail_url: thumbnailUrl,
+        category_id: null, // 未分類
+        user_id: user.id
+      }
+    })
+
+    alert('動画をコースに保存しました。')
+  } catch (error: any) {
+    console.error('[Save] Error saving completed video:', error)
+    alert('動画の保存中にエラーが発生しました: ' + (error.message || 'Unknown error'))
+  }
+}
+
 // 完成ボタン：全てのカットを連結
 const completeVideo = async () => {
   if (cuts.value.length === 0) {
@@ -1834,7 +1958,8 @@ const completeVideo = async () => {
     const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' })
     finalVideoUrl.value = URL.createObjectURL(blob)
     
-    // 注意: 完成動画は自動保存されません（メディアライブラリには追加されません）
+    // 完成動画をコースに保存
+    await saveCompletedVideoToCourse(blob)
     // ダウンロードボタンから手動でダウンロードできます
     
     // 一時ファイルを削除

@@ -3,17 +3,30 @@ export default defineNuxtConfig({
   ssr: false, // サーバーサイドレンダリングを無効化（SPAモード）
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
-  modules: ['@nuxtjs/supabase'], // Supabaseを使う設定
-  supabase: {
-    redirect: false, // ログイン画面への強制移動をオフにする（開発しやすくするため）
+  // modules: ['@nuxtjs/supabase'], // 一時的に無効化（cookieエラーのため）
+  runtimeConfig: {
+    supabase: {
+      serviceKey: process.env.SUPABASE_SERVICE_KEY || ''
+    },
+    public: {
+      supabase: {
+        url: process.env.SUPABASE_URL || '',
+        key: process.env.SUPABASE_ANON_KEY || ''
+      }
+    }
   },
   app: {
-    baseURL: '/movie/', // 最後のスラッシュも忘れずに
+    baseURL: process.env.NODE_ENV === 'production' ? '/movie/' : '/', // 本番環境では/movie/、開発環境では/
     buildAssetsDir: '/_nuxt/',
   },
   vite: {
     optimizeDeps: {
       exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util']
+    },
+    resolve: {
+      alias: {
+        'cookie': 'cookie'
+      }
     }
   },
   nitro: {
