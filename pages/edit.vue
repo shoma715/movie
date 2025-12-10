@@ -736,7 +736,34 @@ const loadMediaLibrary = async () => {
     
     console.log('[MediaLibrary] Found videos:', data?.length || 0)
     
-    uploadedVideos.value = (data || []).map((file) => ({
+    // フォルダや完成動画のフォルダを除外
+    const filteredData = (data || []).filter((file) => {
+      // フォルダを除外（idがnullのものはフォルダ）
+      if (!file.id) {
+        return false
+      }
+      // completedフォルダとthumbnailsフォルダを除外
+      if (file.name === 'completed' || file.name === 'thumbnails') {
+        return false
+      }
+      // 完成動画のファイル名パターンを除外（completed-で始まるファイル）
+      if (file.name.startsWith('completed-')) {
+        return false
+      }
+      // サムネイルのファイル名パターンを除外（thumb-で始まるファイル）
+      if (file.name.startsWith('thumb-')) {
+        return false
+      }
+      // 動画ファイルのみを表示（拡張子で判定）
+      const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv']
+      const hasVideoExtension = videoExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
+      if (!hasVideoExtension) {
+        return false
+      }
+      return true
+    })
+    
+    uploadedVideos.value = filteredData.map((file) => ({
       id: file.id || file.name,
       name: file.name,
       url: '' // URLは後で取得

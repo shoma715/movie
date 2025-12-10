@@ -208,14 +208,41 @@
                   タグがまだ追加されていません。
                 </div>
                 <div v-else class="tags-list">
-                  <span v-for="tag in tags" :key="tag" class="tag-item">{{ tag }}</span>
+                  <span v-for="tag in tags" :key="tag.id" class="tag-item">
+                    {{ tag.name }}
+                    <button class="tag-remove-btn" @click="removeTag(tag.id)">×</button>
+                  </span>
                 </div>
-                <select v-model="selectedTag" class="settings-select">
+                <select 
+                  v-model="selectedTagId" 
+                  class="settings-select"
+                  @change="handleTagSelect"
+                >
                   <option value="">タグを選択...</option>
-                  <option value="tag1">タグ1</option>
-                  <option value="tag2">タグ2</option>
+                  <option value="__new__">+ 新しいタグを追加</option>
+                  <option 
+                    v-for="availableTag in availableTags" 
+                    :key="availableTag.id" 
+                    :value="availableTag.id"
+                  >
+                    {{ availableTag.name }}
+                  </option>
                 </select>
-                <button class="btn-update" @click="addTag">タグを追加</button>
+                <!-- 新しいタグ作成フォーム -->
+                <div v-if="showNewTagInput" class="new-tag-form">
+                  <input 
+                    v-model="newTagName" 
+                    type="text" 
+                    placeholder="タグ名を入力" 
+                    class="settings-input"
+                    @keyup.enter="createAndAddTag"
+                  />
+                  <div class="new-tag-actions">
+                    <button class="btn-cancel" @click="cancelNewTag">キャンセル</button>
+                    <button class="btn-confirm" @click="createAndAddTag">追加</button>
+                  </div>
+                </div>
+                <button v-else class="btn-update" @click="addSelectedTag" :disabled="!selectedTagId || selectedTagId === '__new__'">タグを追加</button>
               </div>
 
               <!-- 字幕 -->
@@ -274,6 +301,9 @@ const currentUser = ref<{
   user_metadata?: any
 } | null>(null)
 
+// 現在の組織
+const currentOrganization = ref<string | null>(null)
+
 // ユーザーメニューの表示状態
 const showUserMenu = ref(false)
 
@@ -297,8 +327,11 @@ const video = ref<{
 const isLoading = ref(true)
 const categories = ref<Array<{ id: number; name: string }>>([])
 const selectedCategoryId = ref<number | null>(null)
-const tags = ref<string[]>([])
-const selectedTag = ref('')
+const tags = ref<Array<{ id: number; name: string }>>([])
+const availableTags = ref<Array<{ id: number; name: string }>>([])
+const selectedTagId = ref<string | number>('')
+const showNewTagInput = ref(false)
+const newTagName = ref('')
 const subtitleLanguage = ref('')
 const subtitleFile = ref<File | null>(null)
 
@@ -312,14 +345,24 @@ const loadVideo = async () => {
 
   try {
     isLoading.value = true
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
     const videos = await $fetch('/api/videos', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     const foundVideo = videos.find((v: any) => v.id === parseInt(videoId as string))
     
     if (foundVideo) {
       video.value = foundVideo
       selectedCategoryId.value = foundVideo.category_id
+      // 動画のタグも読み込む
+      await loadVideoTags()
     }
   } catch (error) {
     console.error('Error loading video:', error)
@@ -331,12 +374,54 @@ const loadVideo = async () => {
 // カテゴリを読み込む
 const loadCategories = async () => {
   try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
     const data = await $fetch('/api/categories', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     categories.value = data || []
   } catch (error) {
     console.error('Error loading categories:', error)
+  }
+}
+
+// 利用可能なタグを読み込む
+const loadAvailableTags = async () => {
+  try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    const data = await $fetch('/api/tags', {
+      method: 'GET',
+      query: queryParams
+    })
+    availableTags.value = data || []
+  } catch (error) {
+    console.error('Error loading tags:', error)
+    availableTags.value = []
+  }
+}
+
+// 動画に紐づいているタグを読み込む
+const loadVideoTags = async () => {
+  if (!video.value) return
+  
+  try {
+    // TODO: 動画とタグの関連を取得するAPIを実装
+    // 現在は空配列を返す
+    tags.value = []
+  } catch (error) {
+    console.error('Error loading video tags:', error)
   }
 }
 
@@ -359,13 +444,115 @@ const updateCategory = async () => {
   }
 }
 
-// タグを追加
-const addTag = () => {
-  if (!selectedTag.value || tags.value.length >= 50) return
-  if (!tags.value.includes(selectedTag.value)) {
-    tags.value.push(selectedTag.value)
-    selectedTag.value = ''
+// タグ選択の処理
+const handleTagSelect = () => {
+  if (selectedTagId.value === '__new__') {
+    showNewTagInput.value = true
+    selectedTagId.value = ''
   }
+}
+
+// 新しいタグを作成して追加
+const createAndAddTag = async () => {
+  if (!newTagName.value.trim()) {
+    alert('タグ名を入力してください')
+    return
+  }
+
+  if (tags.value.length >= 50) {
+    alert('タグは最大50個まで追加できます')
+    return
+  }
+
+  if (!currentOrganization.value) {
+    alert('組織情報が取得できませんでした。ページをリロードしてください。')
+    return
+  }
+
+  try {
+    // 新しいタグを作成
+    const newTag = await $fetch('/api/tags', {
+      method: 'POST',
+      body: {
+        name: newTagName.value.trim(),
+        organization: currentOrganization.value
+      }
+    })
+
+    // タグを動画に追加
+    await addTagToVideo(newTag.id)
+    
+    // フォームをリセット
+    newTagName.value = ''
+    showNewTagInput.value = false
+    selectedTagId.value = ''
+    
+    // タグリストを更新
+    await loadAvailableTags()
+    await loadVideoTags()
+  } catch (error: any) {
+    console.error('Error creating tag:', error)
+    // Nuxtの$fetchエラーでは、エラーメッセージはerror.data.messageまたはerror.messageに含まれる
+    const errorMessage = error?.data?.message || error?.message || 'Unknown error'
+    console.error('Error details:', {
+      message: errorMessage,
+      statusCode: error?.statusCode,
+      data: error?.data,
+      fullError: error
+    })
+    alert('タグの作成に失敗しました: ' + errorMessage)
+  }
+}
+
+// 選択したタグを追加
+const addSelectedTag = async () => {
+  if (!selectedTagId.value || selectedTagId.value === '__new__' || tags.value.length >= 50) return
+
+  const tagId = typeof selectedTagId.value === 'string' ? parseInt(selectedTagId.value) : selectedTagId.value
+  
+  // 既に追加されているかチェック
+  if (tags.value.some(t => t.id === tagId)) {
+    alert('このタグは既に追加されています')
+    selectedTagId.value = ''
+    return
+  }
+
+  try {
+    await addTagToVideo(tagId)
+    selectedTagId.value = ''
+    await loadVideoTags()
+  } catch (error: any) {
+    console.error('Error adding tag:', error)
+    alert('タグの追加に失敗しました: ' + (error.message || 'Unknown error'))
+  }
+}
+
+// 動画にタグを追加（API呼び出し）
+const addTagToVideo = async (tagId: number) => {
+  if (!video.value) return
+  
+  // TODO: 動画とタグの関連を保存するAPIを実装
+  // 現在はローカルに追加
+  const tag = availableTags.value.find(t => t.id === tagId)
+  if (tag) {
+    tags.value.push(tag)
+  }
+}
+
+// タグを削除
+const removeTag = async (tagId: number) => {
+  if (!video.value) return
+  
+  // TODO: 動画とタグの関連を削除するAPIを実装
+  // 現在はローカルから削除
+  tags.value = tags.value.filter(t => t.id !== tagId)
+}
+
+// 新しいタグ作成をキャンセル
+const cancelNewTag = () => {
+  showNewTagInput.value = false
+  newTagName.value = ''
+  selectedTagId.value = ''
 }
 
 // 字幕ファイルを選択
@@ -403,6 +590,10 @@ const loadCurrentUser = async () => {
         email: user.email || '',
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
+      }
+      // 組織情報を取得
+      if (user.user_metadata?.organization) {
+        currentOrganization.value = user.user_metadata.organization
       }
     }
   } catch (error) {
@@ -445,10 +636,12 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-onMounted(() => {
-  loadCurrentUser()
-  loadVideo()
-  loadCategories()
+onMounted(async () => {
+  await loadCurrentUser()
+  await loadVideo()
+  await loadCategories()
+  await loadAvailableTags()
+  await loadVideoTags()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -872,13 +1065,81 @@ onUnmounted(() => {
 }
 
 .tag-item {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 8px;
   background: white;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font-size: 12px;
   color: #333;
+}
+
+.tag-remove-btn {
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.tag-remove-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.new-tag-form {
+  margin-top: 8px;
+}
+
+.new-tag-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-cancel, .btn-confirm {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cancel {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.btn-cancel:hover {
+  background: #e0e0e0;
+}
+
+.btn-confirm {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-confirm:hover {
+  background: #2563eb;
+}
+
+.btn-update:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 .file-upload-area {

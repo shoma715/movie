@@ -201,12 +201,10 @@
                 </div>
                 <div class="form-group">
                   <label>ロール</label>
-                  <input 
-                    value="user"
-                    type="text" 
-                    readonly
-                    class="form-input readonly"
-                  />
+                  <select v-model="newUser.role" class="form-input">
+                    <option value="user">一般ユーザー</option>
+                    <option value="org_admin">組織管理者</option>
+                  </select>
                 </div>
               </div>
               <button class="create-btn-form" @click="createUser" :disabled="isCreating">
@@ -335,24 +333,37 @@ const loadUsers = async () => {
     isLoading.value = true
     errorMessage.value = null
 
-    // APIエンドポイントからユーザー一覧を取得
+    // 現在の組織を確認
+    console.log('[LoadUsers] Current organization:', currentOrganization.value)
+    
+    // APIエンドポイントからユーザー一覧を取得（現在の組織でフィルタリング）
     const response = await $fetch('/api/users', {
-      method: 'GET'
-    }).catch(() => {
+      method: 'GET',
+      query: {
+        organization: currentOrganization.value
+      }
+    }).catch((error) => {
+      console.error('[LoadUsers] Error fetching users:', error)
       // APIが存在しない場合は、空の配列を返す
       return []
     })
 
+    console.log('[LoadUsers] Fetched users:', response)
+
     if (response && Array.isArray(response)) {
-      // レスポンスをフォーマット
+      // レスポンスをフォーマット（組織情報はAPIから取得したものを使用）
       users.value = response.map((user: any) => ({
         id: user.id || user.uuid,
         email: user.email || '',
-        displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || 'Unknown',
-        organization: currentOrganization.value,
-        role: user.user_metadata?.role || 'user',
-        active: user.email_confirmed_at !== null || true
+        displayName: user.displayName || user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || 'Unknown',
+        organization: user.organization || currentOrganization.value,
+        role: user.role || user.user_metadata?.role || 'user',
+        active: user.active !== undefined ? user.active : (user.email_confirmed_at !== null)
       }))
+      
+      console.log('[LoadUsers] Formatted users:', users.value)
+    } else {
+      users.value = []
     }
   } catch (error: any) {
     console.error('Error loading users:', error)
@@ -379,25 +390,37 @@ const createUser = async () => {
     isCreating.value = true
     errorMessage.value = null
 
+    // 現在の組織を確認
+    console.log('[CreateUser] Current organization:', currentOrganization.value)
+    
     // APIエンドポイントにユーザー作成リクエストを送信
+    const requestBody = {
+      email: newUser.value.email,
+      username: newUser.value.displayName,
+      password: newUser.value.password,
+      role: newUser.value.role || 'user',
+      organization: currentOrganization.value
+    }
+    
+    console.log('[CreateUser] Request body:', { ...requestBody, password: '***' })
+    
     const response = await $fetch('/api/users', {
       method: 'POST',
-      body: {
-        email: newUser.value.email,
-        username: newUser.value.displayName,
-        password: newUser.value.password,
-        role: 'user',
-        organization: currentOrganization.value
-      }
+      body: requestBody
     }).catch((error: any) => {
+      console.error('[CreateUser] Error creating user:', error)
       throw new Error(error?.data?.message || error?.message || 'ユーザーの作成に失敗しました')
     })
+
+    console.log('[CreateUser] User created successfully:', response)
 
     // 成功したらフォームをリセット
     newUser.value = {
       email: '',
       displayName: '',
-      password: ''
+      password: '',
+      organization: currentOrganization.value,
+      role: 'user'
     }
 
     // ユーザー一覧を再読み込み

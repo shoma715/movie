@@ -17,6 +17,9 @@ const currentUser = ref<{
   user_metadata?: any
 } | null>(null)
 
+// 現在の組織
+const currentOrganization = ref<string | null>(null)
+
 // ユーザーメニューの表示状態
 const showUserMenu = ref(false)
 
@@ -38,6 +41,10 @@ const loadCurrentUser = async () => {
         email: user.email || '',
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
+      }
+      // 組織情報を取得
+      if (user.user_metadata?.organization) {
+        currentOrganization.value = user.user_metadata.organization
       }
     }
   } catch (error) {
@@ -101,14 +108,28 @@ const categories = ref<Array<{
 const isLoadingVideos = ref(false)
 const isLoadingCategories = ref(false)
 
+// 選択されたカテゴリ（null = 未分類）
+const selectedCategoryId = ref<number | null>(null)
+
 // 動画を取得
 const loadVideos = async () => {
   isLoadingVideos.value = true
   try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    console.log('[LoadVideos] Loading videos for organization:', currentOrganization.value)
+    
     const data = await $fetch('/api/videos', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     videos.value = data || []
+    console.log('[LoadVideos] Loaded videos:', videos.value.length)
   } catch (error) {
     console.error('Error loading videos:', error)
     videos.value = []
@@ -121,10 +142,21 @@ const loadVideos = async () => {
 const loadCategories = async () => {
   isLoadingCategories.value = true
   try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    console.log('[LoadCategories] Loading categories for organization:', currentOrganization.value)
+    
     const data = await $fetch('/api/categories', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     categories.value = data || []
+    console.log('[LoadCategories] Loaded categories:', categories.value.length)
   } catch (error) {
     console.error('Error loading categories:', error)
     categories.value = []
@@ -143,6 +175,20 @@ const getVideosByCategory = (categoryId: number) => {
   return videos.value.filter(v => v.category_id === categoryId)
 }
 
+// 選択されたカテゴリの動画を取得
+const selectedCategoryVideos = computed(() => {
+  if (selectedCategoryId.value === null) {
+    return uncategorizedVideos.value
+  } else {
+    return getVideosByCategory(selectedCategoryId.value)
+  }
+})
+
+// カテゴリを選択
+const selectCategory = (categoryId: number | null) => {
+  selectedCategoryId.value = categoryId
+}
+
 // カテゴリ作成
 const showCreateCategoryModal = ref(false)
 const newCategoryName = ref('')
@@ -154,12 +200,18 @@ const createCategory = async () => {
     return
   }
 
+  if (!currentOrganization.value) {
+    alert('組織情報が取得できませんでした。ページをリロードしてください。')
+    return
+  }
+
   try {
     await $fetch('/api/categories', {
       method: 'POST',
       body: {
         name: newCategoryName.value.trim(),
-        description: newCategoryDescription.value.trim() || null
+        description: newCategoryDescription.value.trim() || null,
+        organization: currentOrganization.value
       }
     })
     
@@ -170,7 +222,15 @@ const createCategory = async () => {
     alert('カテゴリを作成しました')
   } catch (error: any) {
     console.error('Error creating category:', error)
-    alert('カテゴリの作成に失敗しました: ' + (error.message || 'Unknown error'))
+    // Nuxtの$fetchエラーでは、エラーメッセージはerror.data.messageまたはerror.messageに含まれる
+    const errorMessage = error?.data?.message || error?.message || 'Unknown error'
+    console.error('Error details:', {
+      message: errorMessage,
+      statusCode: error?.statusCode,
+      data: error?.data,
+      fullError: error
+    })
+    alert('カテゴリの作成に失敗しました: ' + errorMessage)
   }
 }
 
@@ -186,6 +246,10 @@ const moveVideoToCategory = async (videoId: number, categoryId: number | null) =
       }
     })
     await loadVideos()
+    
+    // 移動先のカテゴリを選択状態にする
+    selectedCategoryId.value = categoryId
+    
     if (categoryId) {
       const category = categories.value.find(c => c.id === categoryId)
       alert(`動画を「${category?.name || 'カテゴリ'}」に移動しました`)
@@ -205,11 +269,13 @@ const formatDate = (dateString: string) => {
 }
 
 // コンポーネントマウント時にユーザー情報を取得
-onMounted(() => {
-  loadCurrentUser()
-  loadVideos()
+onMounted(async () => {
+  await loadCurrentUser()
+  await loadVideos()
   loadCategories()
   document.addEventListener('click', handleClickOutside)
+  // デフォルトで未分類を選択
+  selectedCategoryId.value = null
 })
 
 onUnmounted(() => {
@@ -419,8 +485,12 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="folder-list">
-            <div class="folder-item" @click="moveVideoToCategory(0, null)">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="folder-icon blue">
+            <div 
+              class="folder-item" 
+              :class="{ active: selectedCategoryId === null }"
+              @click="selectCategory(null)"
+            >
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="folder-icon" :class="selectedCategoryId === null ? 'blue' : 'gray'">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
               <span>未分類</span>
@@ -430,8 +500,10 @@ onUnmounted(() => {
               v-for="category in categories" 
               :key="category.id" 
               class="folder-item"
+              :class="{ active: selectedCategoryId === category.id }"
+              @click="selectCategory(category.id)"
             >
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="folder-icon gray">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="folder-icon" :class="selectedCategoryId === category.id ? 'blue' : 'gray'">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
               <span>{{ category.name }}</span>
@@ -440,44 +512,17 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <!-- カテゴリごとの動画 -->
-        <section v-for="category in categories" :key="category.id" class="section">
-          <h2 class="section-title">{{ category.name }}</h2>
-          <div v-if="getVideosByCategory(category.id).length === 0" class="empty-state">
-            <p>このカテゴリには動画がありません</p>
-          </div>
-          <div v-else class="video-grid">
-            <div 
-              v-for="video in getVideosByCategory(category.id)" 
-              :key="video.id" 
-              class="video-card"
-              @click="router.push(`/videos/${video.id}`)"
-            >
-              <div class="video-thumbnail" :style="{ backgroundImage: video.thumbnail_url ? `url(${video.thumbnail_url})` : 'none' }">
-                <svg v-if="!video.thumbnail_url" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="play-icon">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-              </div>
-              <button class="bookmark-btn" @click.stop>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-                </svg>
-              </button>
-              <h3 class="video-title">{{ video.title }}</h3>
-              <p class="video-status published">公開 {{ formatDate(video.created_at) }}</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- 未分類 -->
+        <!-- 選択されたカテゴリの動画を表示 -->
         <section class="section">
-          <h2 class="section-title">未分類</h2>
-          <div v-if="uncategorizedVideos.length === 0" class="empty-state">
-            <p>未分類の動画はありません</p>
+          <h2 class="section-title">
+            {{ selectedCategoryId === null ? '未分類' : categories.find(c => c.id === selectedCategoryId)?.name || 'カテゴリ' }}
+          </h2>
+          <div v-if="selectedCategoryVideos.length === 0" class="empty-state">
+            <p>{{ selectedCategoryId === null ? '未分類の動画はありません' : 'このカテゴリには動画がありません' }}</p>
           </div>
           <div v-else class="video-grid">
             <div 
-              v-for="video in uncategorizedVideos" 
+              v-for="video in selectedCategoryVideos" 
               :key="video.id" 
               class="video-card"
               @click="router.push(`/videos/${video.id}`)"
@@ -494,7 +539,8 @@ onUnmounted(() => {
               </button>
               <h3 class="video-title">{{ video.title }}</h3>
               <p class="video-status published">公開 {{ formatDate(video.created_at) }}</p>
-              <div class="video-actions" @click.stop>
+              <!-- 未分類の動画のみカテゴリ選択を表示 -->
+              <div v-if="selectedCategoryId === null" class="video-actions" @click.stop>
                 <select 
                   @change="(e) => {
                     const target = e.target as HTMLSelectElement
@@ -927,6 +973,21 @@ onUnmounted(() => {
 .folder-item:hover {
   background: #f5f5f5;
   border-color: #3b82f6;
+}
+
+.folder-item.active {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  border-width: 2px;
+}
+
+.folder-item.active .folder-icon {
+  color: #3b82f6;
+}
+
+.folder-item.active span {
+  color: #3b82f6;
+  font-weight: 600;
 }
 
 .folder-icon {

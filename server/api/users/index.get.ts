@@ -1,5 +1,19 @@
 export default defineEventHandler(async (event) => {
   try {
+    // クエリパラメータから組織名を取得
+    const query = getQuery(event)
+    const organization = query.organization as string | undefined
+
+    console.log('[API/Users] Requested organization:', organization)
+
+    // 組織名が指定されていない場合はエラー
+    if (!organization) {
+      throw createError({
+        statusCode: 400,
+        message: '組織名が指定されていません'
+      })
+    }
+
     // Supabase Admin Clientを作成
     const config = useRuntimeConfig()
     const supabaseUrl = config.public?.supabase?.url
@@ -32,19 +46,37 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // ユーザー情報を整形
-    const formattedUsers = (users || []).map((user) => ({
-      id: user.id,
-      uuid: user.id,
-      email: user.email || '',
-      displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || 'Unknown',
-      organization: user.user_metadata?.organization || '自組織 (ID: 2)',
-      role: user.user_metadata?.role || 'user',
-      active: user.email_confirmed_at !== null,
-      email_confirmed_at: user.email_confirmed_at,
-      user_metadata: user.user_metadata
-    }))
+    // ユーザー情報を整形し、指定された組織のユーザーのみをフィルタリング
+    console.log('[API/Users] Total users fetched:', users?.length || 0)
+    
+    const formattedUsers = (users || [])
+      .map((user) => {
+        const userOrganization = user.user_metadata?.organization || '自組織 (ID: 2)'
+        return {
+          user,
+          userOrganization,
+          matches: userOrganization === organization
+        }
+      })
+      .filter((item) => {
+        if (!item.matches) {
+          console.log(`[API/Users] Filtered out user ${item.user.email}: organization "${item.userOrganization}" !== "${organization}"`)
+        }
+        return item.matches
+      })
+      .map((item) => ({
+        id: item.user.id,
+        uuid: item.user.id,
+        email: item.user.email || '',
+        displayName: item.user.user_metadata?.display_name || item.user.user_metadata?.username || item.user.email?.split('@')[0] || 'Unknown',
+        organization: item.user.user_metadata?.organization || '自組織 (ID: 2)',
+        role: item.user.user_metadata?.role || 'user',
+        active: item.user.email_confirmed_at !== null,
+        email_confirmed_at: item.user.email_confirmed_at,
+        user_metadata: item.user.user_metadata
+      }))
 
+    console.log('[API/Users] Filtered users count:', formattedUsers.length)
     return formattedUsers
   } catch (error: any) {
     console.error('Error in user list API:', error)

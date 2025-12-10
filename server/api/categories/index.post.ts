@@ -1,12 +1,19 @@
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event)
-    const { name, description } = body
+    const { name, description, organization } = body
 
     if (!name) {
       throw createError({
         statusCode: 400,
         message: 'カテゴリ名は必須です'
+      })
+    }
+
+    if (!organization) {
+      throw createError({
+        statusCode: 400,
+        message: '組織名は必須です'
       })
     }
 
@@ -29,11 +36,14 @@ export default defineEventHandler(async (event) => {
       }
     })
 
+    console.log('[API/Categories] Creating category:', { name, organization })
+    
     const { data, error } = await supabaseAdmin
       .from('categories')
       .insert({
         name,
         description: description || null,
+        organization: organization,
         created_at: new Date().toISOString()
       })
       .select()
@@ -41,9 +51,27 @@ export default defineEventHandler(async (event) => {
 
     if (error) {
       console.error('Error creating category:', error)
+      console.error('Error details:', JSON.stringify(error, null, 2))
+      
+      // カラムが存在しない場合のエラーメッセージ
+      if (error.message?.includes('column') && error.message?.includes('does not exist')) {
+        throw createError({
+          statusCode: 500,
+          message: 'categoriesテーブルにorganizationカラムが存在しません。Supabaseでorganizationカラムを追加してください。'
+        })
+      }
+      
+      // RLSポリシーのエラー
+      if (error.message?.includes('row-level security') || error.message?.includes('RLS')) {
+        throw createError({
+          statusCode: 500,
+          message: 'Row Level Security (RLS)ポリシーが設定されていません。'
+        })
+      }
+      
       throw createError({
         statusCode: 500,
-        message: error.message || 'カテゴリの作成に失敗しました'
+        message: `カテゴリの作成に失敗しました: ${error.message || 'Unknown error'}${error.details ? ` (${error.details})` : ''}`
       })
     }
 
