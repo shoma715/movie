@@ -1075,6 +1075,11 @@ const applyTrim = async () => {
       console.warn('[Trim] Cleanup error (non-critical):', cleanupError)
     }
     
+    // トリミング前のセクションを自動的に閉じる
+    if (activeCut.value) {
+      activeCut.value.isCollapsed = true
+    }
+    
     alert('トリミングが完了しました')
   } catch (error: any) {
     console.error('[Trim] Error trimming video:', error)
