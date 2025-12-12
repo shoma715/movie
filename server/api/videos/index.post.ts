@@ -3,6 +3,12 @@ export default defineEventHandler(async (event) => {
     const body = await readBody(event)
     const { title, video_url, thumbnail_url, category_id, user_id } = body
 
+    console.log('[API/Videos] POST request received:', {
+      hasTitle: !!title,
+      hasVideoUrl: !!video_url,
+      hasUserId: !!user_id
+    })
+
     if (!title || !video_url) {
       throw createError({
         statusCode: 400,
@@ -14,17 +20,23 @@ export default defineEventHandler(async (event) => {
     const supabaseUrl = config.public?.supabase?.url
     const supabaseServiceKey = config.supabase?.serviceKey
 
-    console.log('API Config check:', {
+    console.log('[API/Videos] Config check:', {
       hasUrl: !!supabaseUrl,
       hasServiceKey: !!supabaseServiceKey,
       urlLength: supabaseUrl?.length || 0,
-      serviceKeyLength: supabaseServiceKey?.length || 0
+      serviceKeyLength: supabaseServiceKey?.length || 0,
+      nodeEnv: process.env.NODE_ENV
     })
 
     if (!supabaseServiceKey || !supabaseUrl) {
-      console.error('Supabase configuration missing:', {
+      console.error('[API/Videos] Supabase configuration missing:', {
         url: supabaseUrl,
-        hasServiceKey: !!supabaseServiceKey
+        hasServiceKey: !!supabaseServiceKey,
+        envVars: {
+          SUPABASE_URL: process.env.SUPABASE_URL ? 'set' : 'missing',
+          SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY ? 'set' : 'missing',
+          SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'set' : 'missing'
+        }
       })
       throw createError({
         statusCode: 500,
@@ -54,8 +66,8 @@ export default defineEventHandler(async (event) => {
       .single()
 
     if (error) {
-      console.error('Error creating video:', error)
-      console.error('Error details:', JSON.stringify(error, null, 2))
+      console.error('[API/Videos] Error creating video:', error)
+      console.error('[API/Videos] Error details:', JSON.stringify(error, null, 2))
       
       // テーブルが存在しない場合のエラーメッセージ
       if (error.message?.includes('relation') && error.message?.includes('does not exist')) {
@@ -75,9 +87,11 @@ export default defineEventHandler(async (event) => {
       
       throw createError({
         statusCode: 500,
-        message: error.message || '動画の作成に失敗しました'
+        message: `動画の作成に失敗しました: ${error.message || 'Unknown error'}${error.details ? ` (${error.details})` : ''}`
       })
     }
+
+    console.log('[API/Videos] Video created successfully:', data?.id)
 
     return data
   } catch (error: any) {

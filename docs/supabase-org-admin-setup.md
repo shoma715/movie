@@ -93,3 +93,5 @@ WHERE email = 'jagariko0302@gmail.com';  -- 組織管理者のメールアドレ
 - `raw_user_meta_data`と`raw_app_meta_data`の両方に`role`を設定することを推奨します
 - 既存のメタデータを保持する場合は、`COALESCE`と`||`演算子を使用してマージします
 
+
+

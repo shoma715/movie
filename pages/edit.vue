@@ -1901,7 +1901,8 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
     }
 
     // データベースに動画メタデータを保存（未分類として）
-    await $fetch('/api/videos', {
+    console.log('[Save] Saving video metadata to database')
+    const response = await $fetch('/api/videos', {
       method: 'POST',
       body: {
         title: videoTitle.value || '無題の動画',
@@ -1910,12 +1911,28 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
         category_id: null, // 未分類
         user_id: user.id
       }
+    }).catch((error: any) => {
+      console.error('[Save] API error details:', {
+        message: error?.data?.message || error?.message,
+        statusCode: error?.statusCode,
+        data: error?.data,
+        fullError: error
+      })
+      throw error
     })
 
+    console.log('[Save] Video saved successfully:', response)
     alert('動画をコースに保存しました。')
   } catch (error: any) {
     console.error('[Save] Error saving completed video:', error)
-    alert('動画の保存中にエラーが発生しました: ' + (error.message || 'Unknown error'))
+    // Nuxtの$fetchエラーでは、エラーメッセージはerror.data.messageまたはerror.messageに含まれる
+    const errorMessage = error?.data?.message || error?.message || 'Unknown error'
+    console.error('[Save] Error details:', {
+      message: errorMessage,
+      statusCode: error?.statusCode,
+      data: error?.data
+    })
+    alert('動画の保存中にエラーが発生しました: ' + errorMessage)
   }
 }
 

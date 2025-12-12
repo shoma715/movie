@@ -14,3 +14,5 @@ CREATE INDEX IF NOT EXISTS idx_tags_organization ON tags(organization);
 -- UPDATE categories SET organization = '自組織 (ID: 2)' WHERE organization IS NULL;
 -- UPDATE tags SET organization = '自組織 (ID: 2)' WHERE organization IS NULL;
 
+
+
