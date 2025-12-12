@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   ssr: false, // サーバーサイドレンダリングを無効化（SPAモード）
   compatibilityDate: '2024-11-01',
   devtools: { enabled: true },
-  // modules: ['@nuxtjs/supabase'], // 一時的に無効化（cookieエラーのため）
+  // modules: ['@nuxtjs/supabase'], // SPAモードでは直接@supabase/supabase-jsを使用するため無効化
   runtimeConfig: {
     supabase: {
       serviceKey: process.env.SUPABASE_SERVICE_KEY || ''
@@ -21,12 +21,8 @@ export default defineNuxtConfig({
   },
   vite: {
     optimizeDeps: {
-      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util']
-    },
-    resolve: {
-      alias: {
-        'cookie': 'cookie'
-      }
+      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+      include: ['@supabase/supabase-js']
     }
   },
   nitro: {

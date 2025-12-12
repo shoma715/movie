@@ -26,29 +26,14 @@ npm install
    - バケット名: `videos`
    - Public bucket: 有効化（動画を公開する場合）
 
-3. 環境変数の設定
-
-**ローカル開発環境（`.env`ファイルを作成）**
+3. 環境変数の設定（`.env`ファイルを作成）
 
 ```env
 SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_KEY=your_supabase_service_key
+SUPABASE_KEY=your_supabase_anon_key
 ```
 
-**Netlifyでの環境変数設定**
-
-1. Netlifyダッシュボードにログイン
-2. プロジェクトを選択
-3. **Site settings** → **Environment variables** に移動
-4. 以下の環境変数を追加：
-   - `SUPABASE_URL`: SupabaseプロジェクトのURL
-   - `SUPABASE_ANON_KEY`: Supabaseの匿名キー（公開キー）
-   - `SUPABASE_SERVICE_KEY`: Supabaseのサービスロールキー（秘密キー）
-
-   **重要**: `SUPABASE_SERVICE_KEY`は機密情報のため、**Build settings**で「Sensitive variable」としてマークしてください。
-
-5. 環境変数を追加した後、**Deploy settings** → **Trigger deploy** → **Clear cache and deploy site** を実行して再デプロイしてください。
+または、`nuxt.config.ts`で直接設定することもできます。
 
 ### 3. 開発サーバーの起動
 
@@ -81,29 +66,9 @@ npm run dev
 
 ## 本番環境へのデプロイ
 
-### Netlifyへのデプロイ
-
-1. **環境変数の設定**（上記の「Netlifyでの環境変数設定」を参照）
-2. GitリポジトリをNetlifyに接続
-3. ビルド設定：
-   - **Build command**: `npm run build`
-   - **Publish directory**: `.output/public`
-4. デプロイを実行
-
-### ローカルでのビルド確認
-
 ```bash
 npm run build
 npm run preview
 ```
 
 デプロイの詳細については、[Nuxtのデプロイメントドキュメント](https://nuxt.com/docs/getting-started/deployment)を参照してください。
-
-### トラブルシューティング
-
-**NetlifyでSupabaseのデータが表示されない場合**
-
-1. Netlifyダッシュボードで環境変数が正しく設定されているか確認
-2. 環境変数名が正確か確認（`SUPABASE_URL`、`SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_KEY`）
-3. 環境変数を追加・変更した後は、必ず再デプロイを実行
-4. Netlifyのビルドログで環境変数が読み込まれているか確認（機密情報は表示されませんが、変数名は確認できます）
