@@ -347,10 +347,10 @@ const handleTestClick = (test: any) => {
   // 一般ユーザーはテスト受験ページへ
   // 組織管理者は結果ページへ
   if (isOrgAdmin.value) {
-    router.push(`/tests/${test.videoId}`)
+    router.push(`/tests/${test.videoId}/results`)
   } else {
     // TODO: テスト受験ページへ遷移
-    alert('テスト受験機能は開発中です')
+    router.push(`/tests/take/${test.id}`)
   }
 }
 

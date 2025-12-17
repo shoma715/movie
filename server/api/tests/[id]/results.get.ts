@@ -52,25 +52,26 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // テストIDを取得
-    const testId = parseInt(event.context.params?.id || '0')
-    console.log('[API/Tests/Results] Test ID:', testId)
+    // 動画IDを取得（URLパラメータ）
+    const videoId = parseInt(event.context.params?.id || '0')
+    console.log('[API/Tests/Results] Video ID from URL:', videoId)
     
-    if (!testId) {
+    if (!videoId) {
       throw createError({
         statusCode: 400,
-        message: '無効なテストIDです'
+        message: '無効な動画IDです'
       })
     }
 
-    // テスト情報を取得
-    console.log('[API/Tests/Results] Fetching test info for ID:', testId)
+    // 動画IDに紐づくテスト情報を取得
+    console.log('[API/Tests/Results] Fetching test for video ID:', videoId)
     console.log('[API/Tests/Results] User organization:', userOrganization)
     
     const { data: test, error: testError } = await supabaseAdmin
       .from('tests')
-      .select('*, videos(title)')
-      .eq('id', testId)
+      .select('*')
+      .eq('video_id', videoId)
+      .eq('organization', userOrganization)
       .single()
     
     console.log('[API/Tests/Results] Test data:', test)
@@ -83,6 +84,15 @@ export default defineEventHandler(async (event) => {
         message: 'テストが見つかりません'
       })
     }
+
+    // 動画情報を別途取得
+    const { data: video } = await supabaseAdmin
+      .from('videos')
+      .select('title')
+      .eq('id', videoId)
+      .single()
+    
+    console.log('[API/Tests/Results] Video data:', video)
 
     // テストが組織に属しているか確認
     if (test.organization !== userOrganization) {
@@ -105,11 +115,11 @@ export default defineEventHandler(async (event) => {
     console.log('[API/Tests/Results] Organization user IDs:', organizationUserIds)
 
     // 受験履歴を取得
-    console.log('[API/Tests/Results] Fetching attempts...')
+    console.log('[API/Tests/Results] Fetching attempts for test ID:', test.id)
     const { data: attempts, error: attemptsError } = await supabaseAdmin
       .from('test_attempts')
       .select('*')
-      .eq('test_id', testId)
+      .eq('test_id', test.id)
       .eq('is_completed', true)
       .in('user_id', organizationUserIds)
       .order('completed_at', { ascending: false })
@@ -125,6 +135,31 @@ export default defineEventHandler(async (event) => {
       })
     }
 
+    // 動画視聴履歴を取得
+    console.log('[API/Tests/Results] Fetching watch history for video ID:', videoId)
+    const { data: watchHistory, error: watchHistoryError } = await supabaseAdmin
+      .from('video_watch_history')
+      .select('user_id, completed_at')
+      .eq('video_id', videoId)
+      .eq('is_completed', true)
+      .not('completed_at', 'is', null)
+      .in('user_id', organizationUserIds)
+      .order('completed_at', { ascending: false })
+    
+    console.log('[API/Tests/Results] Watch history found:', watchHistory?.length || 0)
+    console.log('[API/Tests/Results] Watch history error:', watchHistoryError)
+    
+    // ユーザーごとの動画視聴完了日時をマップ
+    const userWatchCompleted = new Map<string, string>()
+    watchHistory?.forEach(history => {
+      if (history.completed_at && (!userWatchCompleted.has(history.user_id) || 
+          new Date(history.completed_at) > new Date(userWatchCompleted.get(history.user_id) || ''))) {
+        userWatchCompleted.set(history.user_id, history.completed_at)
+      }
+    })
+    
+    console.log('[API/Tests/Results] Watch history mapped for', userWatchCompleted.size, 'users')
+
     // ユーザーごとに集計
     const userResults = new Map<string, {
       userId: string
@@ -136,6 +171,7 @@ export default defineEventHandler(async (event) => {
       lastAttemptDate: string
       firstAttemptDate: string
       totalTime: number
+      videoCompletedAt: string | null
       attempts: Array<{
         attemptId: number
         score: number
@@ -172,6 +208,7 @@ export default defineEventHandler(async (event) => {
           lastAttemptDate: attempt.completed_at,
           firstAttemptDate: attempt.completed_at,
           totalTime: 0,
+          videoCompletedAt: userWatchCompleted.get(userId) || null,
           attempts: []
         })
       }
@@ -224,16 +261,17 @@ export default defineEventHandler(async (event) => {
       lastAttemptDate: r.lastAttemptDate,
       firstAttemptDate: r.firstAttemptDate,
       averageTime: r.attemptCount > 0 ? Math.floor(r.totalTime / r.attemptCount) : 0,
+      videoCompletedAt: r.videoCompletedAt,
       attempts: r.attempts
     }))
 
-    console.log('[API/Tests/[id]/Results.GET] Returning results for test:', testId)
+    console.log('[API/Tests/[id]/Results.GET] Returning results for test:', test.id)
 
     return {
       test: {
         id: test.id,
         title: test.title,
-        videoTitle: test.videos?.title || '不明な動画',
+        videoTitle: video?.title || '不明な動画',
         videoId: test.video_id
       },
       statistics: {

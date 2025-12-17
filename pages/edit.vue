@@ -201,6 +201,8 @@ const removeCut = (cutId: number) => {
   const index = cuts.value.findIndex(c => c.id === cutId)
   if (index !== -1) {
     const cut = cuts.value[index]
+    if (!cut) return
+    
     // URLを解放
     if (cut.videoUrl && cut.videoUrl.startsWith('blob:')) {
       URL.revokeObjectURL(cut.videoUrl)
@@ -215,7 +217,7 @@ const removeCut = (cutId: number) => {
     
     // 削除されたカットが選択中だった場合、別のカットを選択
     if (activeCutId.value === cutId) {
-      activeCutId.value = cuts.value.length > 0 ? cuts.value[0].id : null
+      activeCutId.value = cuts.value.length > 0 ? cuts.value[0]?.id ?? null : null
     }
   }
 }
@@ -305,7 +307,9 @@ const handleDrop = (cutId: number, event: DragEvent) => {
   if (draggedIndex !== -1 && dropIndex !== -1) {
     // カットの順番を変更
     const [draggedCut] = cuts.value.splice(draggedIndex, 1)
-    cuts.value.splice(dropIndex, 0, draggedCut)
+    if (draggedCut) {
+      cuts.value.splice(dropIndex, 0, draggedCut)
+    }
   }
   
   draggedCutId.value = null
@@ -1173,7 +1177,9 @@ const handleTextItemDrop = (itemId: number, event: DragEvent) => {
   if (draggedIndex !== -1 && dropIndex !== -1) {
     // テキストアイテムの順番を変更
     const [draggedItem] = activeCut.value.textItems.splice(draggedIndex, 1)
-    activeCut.value.textItems.splice(dropIndex, 0, draggedItem)
+    if (draggedItem) {
+      activeCut.value.textItems.splice(dropIndex, 0, draggedItem)
+    }
   }
   
   draggedTextItemId.value = null
@@ -1326,7 +1332,7 @@ const applyOverlays = async () => {
     
     // FFmpegフィルターを構築
     const textFilters: string[] = []
-    const imageOverlays: Array<{ file: string; x: string; y: string; startTime: number; endTime: number }> = []
+    const imageOverlays: Array<{ file: string; x: string; y: string; width: number; height: number; startTime: number; endTime: number }> = []
     
     // テキストサイズに応じたフォントサイズを決定
     const fontSizeMap = {
@@ -1362,117 +1368,117 @@ const applyOverlays = async () => {
     // 画像オーバーレイ情報を収集（サイズを動画の1/2に制限、位置を画面端に合わせる）
     for (let index = 0; index < imageItems.value.length; index++) {
       const item = imageItems.value[index]
-      if (item.file && item.startTime >= 0 && item.endTime > item.startTime) {
-        // 画像のサイズを計算（動画サイズの1/2を最大値として、アスペクト比を維持）
-        // 実際の動画サイズを使用
-        const maxWidth = Math.floor(actualVideoWidth / 2)
-        const maxHeight = Math.floor(actualVideoHeight / 2)
-        
-        console.log('[Overlay] Image size calculation start:', {
-          videoSize: { width: actualVideoWidth, height: actualVideoHeight },
-          maxSize: { width: maxWidth, height: maxHeight }
-        })
-        
-        // 画像の元のサイズを取得（Image要素から、非同期で読み込む）
-        let imgWidth = 200 // デフォルト値
-        let imgHeight = 200 // デフォルト値
-        
-        if (item.url) {
-          // 画像を読み込んでサイズを取得
-          await new Promise<void>((resolve) => {
-            const img = new Image()
-            img.onload = () => {
-              imgWidth = img.naturalWidth || img.width || 200
-              imgHeight = img.naturalHeight || img.height || 200
-              resolve()
-            }
-            img.onerror = () => {
-              resolve() // エラーでも続行
-            }
-            img.src = item.url!
-          })
-        }
-        
-        // アスペクト比を維持してリサイズ（動画サイズの1/2を最大値として）
-        // maxWidthとmaxHeightは既に動画サイズの1/2なので、これを使用
-        // 横幅と縦幅の両方が1/2を超えないようにする（アスペクト比を維持）
-        const widthRatio = maxWidth / imgWidth
-        const heightRatio = maxHeight / imgHeight
-        // より厳しい制限を適用（小さい方の比率を使用）
-        const ratio = Math.min(widthRatio, heightRatio)
-        
-        let finalAdjustedWidth = Math.floor(imgWidth * ratio)
-        let finalAdjustedHeight = Math.floor(imgHeight * ratio)
-        
-        // 最終的な保証（確実に1/2以下にする）
-        // 横幅と縦幅の両方がmaxWidthとmaxHeightを超えないことを保証
-        if (finalAdjustedWidth > maxWidth) {
-          const adjustRatio = maxWidth / finalAdjustedWidth
-          finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
-          finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
-        }
-        if (finalAdjustedHeight > maxHeight) {
-          const adjustRatio = maxHeight / finalAdjustedHeight
-          finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
-          finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
-        }
-        
-        // 最終的な保証（念のため、確実に1/2以下にする）
-        finalAdjustedWidth = Math.min(finalAdjustedWidth, maxWidth)
-        finalAdjustedHeight = Math.min(finalAdjustedHeight, maxHeight)
-        
-        console.log('[Overlay] Image size calculation:', {
-          original: { width: imgWidth, height: imgHeight },
-          maxAllowed: { width: maxWidth, height: maxHeight },
-          final: { width: finalAdjustedWidth, height: finalAdjustedHeight },
-          videoSize: { width: actualVideoWidth, height: actualVideoHeight },
-          ratio: { 
-            width: finalAdjustedWidth / actualVideoWidth, 
-            height: finalAdjustedHeight / actualVideoHeight,
-            maxWidthRatio: maxWidth / actualVideoWidth,
-            maxHeightRatio: maxHeight / actualVideoHeight
-          },
-          isWithinLimit: {
-            width: finalAdjustedWidth <= maxWidth,
-            height: finalAdjustedHeight <= maxHeight
+      if (!item || !item.file || item.startTime < 0 || item.endTime <= item.startTime) continue
+      
+      // 画像のサイズを計算（動画サイズの1/2を最大値として、アスペクト比を維持）
+      // 実際の動画サイズを使用
+      const maxWidth = Math.floor(actualVideoWidth / 2)
+      const maxHeight = Math.floor(actualVideoHeight / 2)
+      
+      console.log('[Overlay] Image size calculation start:', {
+        videoSize: { width: actualVideoWidth, height: actualVideoHeight },
+        maxSize: { width: maxWidth, height: maxHeight }
+      })
+      
+      // 画像の元のサイズを取得（Image要素から、非同期で読み込む）
+      let imgWidth = 200 // デフォルト値
+      let imgHeight = 200 // デフォルト値
+      
+      if (item.url) {
+        // 画像を読み込んでサイズを取得
+        await new Promise<void>((resolve) => {
+          const img = new Image()
+          img.onload = () => {
+            imgWidth = img.naturalWidth || img.width || 200
+            imgHeight = img.naturalHeight || img.height || 200
+            resolve()
           }
+          img.onerror = () => {
+            resolve() // エラーでも続行
+          }
+          img.src = item.url!
         })
-        
-        // 位置を設定（画面端に合わせる）
-        let x = '0'
-        let y = '0'
-
-        switch (item.position) {
-          case 'top-left':
-            x = '0'
-            y = '0'
-            break
-          case 'top-right':
-            x = `W-${finalAdjustedWidth}`
-            y = '0'
-            break
-          case 'bottom-left':
-            x = '0'
-            y = `H-${finalAdjustedHeight}`
-            break
-          case 'bottom-right':
-            x = `W-${finalAdjustedWidth}`
-            y = `H-${finalAdjustedHeight}`
-            break
+      }
+      
+      // アスペクト比を維持してリサイズ（動画サイズの1/2を最大値として）
+      // maxWidthとmaxHeightは既に動画サイズの1/2なので、これを使用
+      // 横幅と縦幅の両方が1/2を超えないようにする（アスペクト比を維持）
+      const widthRatio = maxWidth / imgWidth
+      const heightRatio = maxHeight / imgHeight
+      // より厳しい制限を適用（小さい方の比率を使用）
+      const ratio = Math.min(widthRatio, heightRatio)
+      
+      let finalAdjustedWidth = Math.floor(imgWidth * ratio)
+      let finalAdjustedHeight = Math.floor(imgHeight * ratio)
+      
+      // 最終的な保証（確実に1/2以下にする）
+      // 横幅と縦幅の両方がmaxWidthとmaxHeightを超えないことを保証
+      if (finalAdjustedWidth > maxWidth) {
+        const adjustRatio = maxWidth / finalAdjustedWidth
+        finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
+        finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
+      }
+      if (finalAdjustedHeight > maxHeight) {
+        const adjustRatio = maxHeight / finalAdjustedHeight
+        finalAdjustedWidth = Math.floor(finalAdjustedWidth * adjustRatio)
+        finalAdjustedHeight = Math.floor(finalAdjustedHeight * adjustRatio)
+      }
+      
+      // 最終的な保証（念のため、確実に1/2以下にする）
+      finalAdjustedWidth = Math.min(finalAdjustedWidth, maxWidth)
+      finalAdjustedHeight = Math.min(finalAdjustedHeight, maxHeight)
+      
+      console.log('[Overlay] Image size calculation:', {
+        original: { width: imgWidth, height: imgHeight },
+        maxAllowed: { width: maxWidth, height: maxHeight },
+        final: { width: finalAdjustedWidth, height: finalAdjustedHeight },
+        videoSize: { width: actualVideoWidth, height: actualVideoHeight },
+        ratio: { 
+          width: finalAdjustedWidth / actualVideoWidth, 
+          height: finalAdjustedHeight / actualVideoHeight,
+          maxWidthRatio: maxWidth / actualVideoWidth,
+          maxHeightRatio: maxHeight / actualVideoHeight
+        },
+        isWithinLimit: {
+          width: finalAdjustedWidth <= maxWidth,
+          height: finalAdjustedHeight <= maxHeight
         }
+      })
+      
+      // 位置を設定（画面端に合わせる）
+      let x = '0'
+      let y = '0'
 
-        const imageFile = imageFiles[index]
-        if (imageFile) {
-          imageOverlays.push({
-            file: imageFile,
-            x,
-            y,
-            width: finalAdjustedWidth,
-            height: finalAdjustedHeight,
-            startTime: item.startTime,
-            endTime: item.endTime
-          })
-        }
+      switch (item.position) {
+        case 'top-left':
+          x = '0'
+          y = '0'
+          break
+        case 'top-right':
+          x = `W-${finalAdjustedWidth}`
+          y = '0'
+          break
+        case 'bottom-left':
+          x = '0'
+          y = `H-${finalAdjustedHeight}`
+          break
+        case 'bottom-right':
+          x = `W-${finalAdjustedWidth}`
+          y = `H-${finalAdjustedHeight}`
+          break
+      }
+
+      const imageFile = imageFiles[index]
+      if (imageFile) {
+        imageOverlays.push({
+          file: imageFile,
+          x,
+          y,
+          width: finalAdjustedWidth,
+          height: finalAdjustedHeight,
+          startTime: item.startTime,
+          endTime: item.endTime
+        })
       }
     }
     
@@ -1780,9 +1786,12 @@ const canTrim = computed(() => {
          cut?.videoFile !== null && 
          ffmpeg.value !== null && 
          isFFmpegLoaded.value &&
+         cut?.startTime !== undefined &&
          cut?.startTime >= 0 && 
-         cut?.startTime < cut?.endTime &&
-         cut?.endTime <= cut?.videoDuration &&
+         cut?.endTime !== undefined &&
+         cut?.videoDuration !== undefined &&
+         cut.startTime < cut.endTime &&
+         cut.endTime <= cut.videoDuration &&
          !isTrimming.value &&
          !isFFmpegLoading.value
 })
@@ -1968,6 +1977,7 @@ const completeVideo = async () => {
     const videoFiles: string[] = []
     for (let i = 0; i < cuts.value.length; i++) {
       const cut = cuts.value[i]
+      if (!cut) continue
       const videoUrl = cut.finalVideoUrl || cut.trimmedVideoUrl
       if (!videoUrl) continue
       

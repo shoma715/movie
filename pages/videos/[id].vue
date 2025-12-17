@@ -643,7 +643,7 @@ const onVideoEnded = async () => {
         }
       })
       console.log('[Video] Watch history updated:', response)
-      alert('動画の視聴が完了しました！テストページで結果を確認できます。')
+      alert('動画の視聴が完了しました！')
     }
   } catch (error) {
     console.error('Error tracking video completion:', error)
@@ -695,9 +695,14 @@ const goToTestPage = () => {
   }
   
   if (isOrgAdmin.value) {
-    // 組織管理者は結果ページへ
-    const targetPath = `/tests/results/${relatedTest.value.id}`
+    // 組織管理者は結果ページへ（動画IDを使用）
+    if (!video.value) {
+      console.error('[VideoDetail] Video is not loaded')
+      return
+    }
+    const targetPath = `/tests/${video.value.id}/results`
     console.log('[VideoDetail] Navigating to results page:', targetPath)
+    console.log('[VideoDetail] Using video ID:', video.value.id)
     router.push(targetPath)
   } else {
     // 一般ユーザーはテスト受験ページへ
