@@ -312,7 +312,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="course-page">
+  <div class="manual-page">
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
@@ -404,14 +404,14 @@ onUnmounted(() => {
             </svg>
             <span>ブックマーク</span>
           </a>
-          <NuxtLink to="/" class="nav-item active">
+          <NuxtLink to="/" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
               <polygon points="10 8 16 12 10 16 10 8"/>
             </svg>
             <span>コース</span>
           </NuxtLink>
-          <NuxtLink to="/manuals" class="nav-item">
+          <NuxtLink to="/manuals" class="nav-item active">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -471,13 +471,13 @@ onUnmounted(() => {
         <div class="breadcrumbs">
           <span>ホーム</span>
           <span class="separator">></span>
-          <span>コース</span>
+          <span>マニュアル</span>
         </div>
 
         <!-- ページタイトル -->
         <div class="page-header">
           <div class="page-title-section">
-            <h1 class="page-title">コース</h1>
+            <h1 class="page-title">マニュアル</h1>
             <button class="help-icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
@@ -611,7 +611,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.course-page {
+.manual-page {
   min-height: 100vh;
   background: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1174,51 +1174,6 @@ onUnmounted(() => {
   color: #333;
 }
 
-/* コースカード */
-.course-card {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 32px;
-  background: white;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.course-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.course-icon {
-  width: 64px;
-  height: 64px;
-}
-
-.course-icon.blue {
-  color: #3b82f6;
-}
-
-.course-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.course-name {
-  font-size: 20px;
-  font-weight: 600;
-  color: #333;
-  margin: 0;
-}
-
-.course-count {
-  font-size: 14px;
-  color: #666;
-  margin: 0;
-}
-
 /* 動画グリッド */
 .video-grid {
   display: grid;
@@ -1250,6 +1205,8 @@ onUnmounted(() => {
   justify-content: center;
   margin-bottom: 12px;
   position: relative;
+  background-size: cover;
+  background-position: center;
 }
 
 .play-icon {
@@ -1258,8 +1215,8 @@ onUnmounted(() => {
 
 .watched-badge {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 24px;
+  left: 24px;
   background: #ef4444;
   color: white;
   padding: 4px 12px;
@@ -1271,8 +1228,8 @@ onUnmounted(() => {
 
 .bookmark-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 24px;
+  right: 24px;
   width: 32px;
   height: 32px;
   border: none;

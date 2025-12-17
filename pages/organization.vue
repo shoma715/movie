@@ -99,7 +99,7 @@
             </svg>
             <span>コース</span>
           </NuxtLink>
-          <a href="#" class="nav-item">
+          <NuxtLink to="/manuals" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -108,14 +108,14 @@
               <polyline points="10 9 9 9 8 9"/>
             </svg>
             <span>マニュアル</span>
-          </a>
-          <a href="#" class="nav-item">
+          </NuxtLink>
+          <NuxtLink to="/tests" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 11 12 14 22 4"/>
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
             </svg>
             <span>テスト</span>
-          </a>
+          </NuxtLink>
           <a href="#" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>

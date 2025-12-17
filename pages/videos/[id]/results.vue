@@ -1,5 +1,5 @@
 <template>
-  <div class="home-page">
+  <div class="results-page">
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
@@ -21,18 +21,6 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-          </svg>
-        </button>
-        <button class="icon-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-          </svg>
-        </button>
-        <button class="icon-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 10v6M2 10l10-8 10 8M2 10v6c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-6"/>
-            <path d="M6 14h12"/>
           </svg>
         </button>
         <div class="user-profile-container">
@@ -63,9 +51,6 @@
               </svg>
               ログアウト
             </button>
-            <a href="#" class="menu-item menu-link">
-              もっとみる >
-            </a>
           </div>
         </div>
       </div>
@@ -78,19 +63,13 @@
           <span>+ 作成</span>
         </button>
         <nav class="nav-menu">
-          <NuxtLink to="/home" class="nav-item active">
+          <NuxtLink to="/home" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
               <polyline points="9 22 9 12 15 12 15 22"/>
             </svg>
             <span>ホーム</span>
           </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-            </svg>
-            <span>ブックマーク</span>
-          </a>
           <NuxtLink to="/" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
@@ -98,30 +77,6 @@
             </svg>
             <span>コース</span>
           </NuxtLink>
-          <NuxtLink to="/manuals" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-              <polyline points="10 9 9 9 8 9"/>
-            </svg>
-            <span>マニュアル</span>
-          </NuxtLink>
-          <NuxtLink to="/tests" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9 11 12 14 22 4"/>
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-            </svg>
-            <span>テスト</span>
-          </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-              <line x1="7" y1="7" x2="7.01" y2="7"/>
-            </svg>
-            <span>タグ</span>
-          </a>
           <NuxtLink 
             v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" 
             to="/organization" 
@@ -133,22 +88,55 @@
             </svg>
             <span>組織設定</span>
           </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="20" x2="18" y2="10"/>
-              <line x1="12" y1="20" x2="12" y2="4"/>
-              <line x1="6" y1="20" x2="6" y2="14"/>
-            </svg>
-            <span>設定</span>
-          </a>
         </nav>
       </aside>
 
       <!-- メインコンテンツ -->
       <main class="content-area">
-        <div class="home-content">
-          <h1 class="welcome-title">ホーム</h1>
-          <p class="welcome-message">ようこそ、VIVNAIへ</p>
+        <div class="results-content">
+          <div class="page-header">
+            <h1 class="page-title">受験結果一覧</h1>
+            <div class="results-count">{{ results.length }}件</div>
+          </div>
+
+          <div v-if="isLoading" class="loading">
+            <p>読み込み中...</p>
+          </div>
+
+          <div v-else-if="results.length === 0" class="empty-state">
+            <p>まだ誰も見ていません</p>
+            <p class="empty-description">動画を最後まで視聴したユーザーの結果がここに表示されます</p>
+          </div>
+
+          <div v-else class="results-table-container">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>ユーザー名</th>
+                  <th>メールアドレス</th>
+                  <th>開始日時</th>
+                  <th>完了日時</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="result in results" :key="result.userId">
+                  <td>
+                    <div class="user-cell">
+                      <div class="avatar-small">{{ getAvatarInitial(result.userName) }}</div>
+                      <span>{{ result.userName }}</span>
+                    </div>
+                  </td>
+                  <td>{{ result.email }}</td>
+                  <td>{{ formatDateTime(result.startedAt) }}</td>
+                  <td>{{ formatDateTime(result.completedAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="back-button-container">
+            <button class="btn-secondary" @click="goBack">動画詳細に戻る</button>
+          </div>
         </div>
       </main>
     </div>
@@ -156,9 +144,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { createClient } from '@supabase/supabase-js'
 
+const route = useRoute()
 const router = useRouter()
 
 // Supabaseクライアント
@@ -178,10 +167,67 @@ const currentUser = ref<{
 const showUserMenu = ref(false)
 
 // アバターの初期文字を取得
-const getAvatarInitial = (name: string) => {
+const getAvatarInitial = (name: string | undefined) => {
   if (!name) return '?'
   const firstChar = name.charAt(0)
   return firstChar.toUpperCase()
+}
+
+// 受験結果
+const results = ref<Array<any>>([])
+
+const isLoading = ref(true)
+
+// 受験結果を読み込む
+const loadResults = async () => {
+  const videoId = route.params.id
+  if (!videoId || !supabase) {
+    isLoading.value = false
+    return
+  }
+
+  try {
+    isLoading.value = true
+
+    // 認証トークンを取得
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      alert('ログインが必要です')
+      router.push('/login')
+      return
+    }
+
+    const response = await $fetch(`/api/videos/${videoId}/results`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      }
+    })
+
+    results.value = response || []
+  } catch (error: any) {
+    console.error('Error loading results:', error)
+    if (error.statusCode === 403) {
+      alert('組織管理者のみアクセスできます')
+      router.push(`/videos/${route.params.id}`)
+    } else {
+      alert('受験結果の取得に失敗しました')
+    }
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 日時をフォーマット
+const formatDateTime = (dateString: string | null | undefined) => {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}/${month}/${day} ${hours}:${minutes}`
 }
 
 // ユーザー情報を取得
@@ -206,6 +252,11 @@ const navigateToEdit = () => {
   router.push('/edit')
 }
 
+// 動画詳細に戻る
+const goBack = () => {
+  router.push(`/videos/${route.params.id}`)
+}
+
 // ログアウト処理
 const handleLogout = async () => {
   if (!supabase) {
@@ -220,7 +271,6 @@ const handleLogout = async () => {
       return
     }
     
-    // ログアウト成功
     currentUser.value = null
     showUserMenu.value = false
     router.push('/login')
@@ -238,9 +288,9 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-// コンポーネントマウント時にユーザー情報を取得
-onMounted(() => {
-  loadCurrentUser()
+onMounted(async () => {
+  await loadCurrentUser()
+  await loadResults()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -250,7 +300,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.home-page {
+.results-page {
   min-height: 100vh;
   background: #f5f5f5;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -258,12 +308,12 @@ onUnmounted(() => {
 
 /* ヘッダー */
 .header {
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -272,7 +322,6 @@ onUnmounted(() => {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 24px;
 }
 
 .logo {
@@ -289,21 +338,21 @@ onUnmounted(() => {
 
 .search-bar {
   position: relative;
-}
-
-.search-input {
-  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 16px;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
-  font-size: 14px;
   background: #f9fafb;
 }
 
-.search-input:focus {
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
   outline: none;
-  border-color: #9333ea;
-  background: white;
 }
 
 .header-right {
@@ -323,7 +372,6 @@ onUnmounted(() => {
   justify-content: center;
   cursor: pointer;
   color: #666;
-  position: relative;
   transition: background 0.2s;
 }
 
@@ -349,7 +397,6 @@ onUnmounted(() => {
   background: #f5f5f5;
 }
 
-/* ユーザーメニュー */
 .user-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -381,22 +428,6 @@ onUnmounted(() => {
   background: #f5f5f5;
 }
 
-.menu-item svg {
-  flex-shrink: 0;
-  color: #666;
-}
-
-.menu-link {
-  text-decoration: none;
-  color: #3b82f6;
-  border-top: 1px solid #e0e0e0;
-}
-
-.menu-link:hover {
-  background: #f0f7ff;
-  color: #2563eb;
-}
-
 .avatar {
   width: 32px;
   height: 32px;
@@ -416,7 +447,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* メインレイアウト */
 .main-layout {
   display: flex;
   min-height: calc(100vh - 60px);
@@ -473,12 +503,6 @@ onUnmounted(() => {
   color: #9333ea;
 }
 
-.nav-item.active {
-  background: #f3e8ff;
-  color: #9333ea;
-  font-weight: 600;
-}
-
 .nav-item svg {
   flex-shrink: 0;
 }
@@ -490,23 +514,122 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.home-content {
+.results-content {
   max-width: 1200px;
   margin: 0 auto;
-  text-align: center;
-  padding-top: 100px;
 }
 
-.welcome-title {
-  font-size: 48px;
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.page-title {
+  font-size: 28px;
   font-weight: 700;
   color: #333;
-  margin-bottom: 16px;
+  margin: 0;
 }
 
-.welcome-message {
-  font-size: 18px;
+.results-count {
+  font-size: 16px;
   color: #666;
+  font-weight: 500;
+}
+
+.loading, .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: #666;
+}
+
+.empty-description {
+  font-size: 14px;
+  color: #999;
+  margin-top: 8px;
+}
+
+.results-table-container {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  overflow-x: auto;
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.results-table thead {
+  background: #f9fafb;
+}
+
+.results-table th {
+  padding: 12px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.results-table td {
+  padding: 12px;
+  font-size: 14px;
+  color: #333;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.results-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-small {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #9333ea;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.back-button-container {
+  margin-top: 30px;
+  text-align: center;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: #f5f5f5;
+  color: #333;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #e0e0e0;
 }
 </style>
 

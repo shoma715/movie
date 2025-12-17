@@ -1,5 +1,5 @@
 <template>
-  <div class="home-page">
+  <div class="tests-page">
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
@@ -7,7 +7,7 @@
       </div>
       <div class="header-center">
         <div class="search-bar">
-          <input type="text" placeholder="Q キーワードで検索" class="search-input" />
+          <input type="text" placeholder="Q キーワードで検索" class="search-input" v-model="searchQuery" />
         </div>
       </div>
       <div class="header-right">
@@ -78,7 +78,7 @@
           <span>+ 作成</span>
         </button>
         <nav class="nav-menu">
-          <NuxtLink to="/home" class="nav-item active">
+          <NuxtLink to="/home" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
               <polyline points="9 22 9 12 15 12 15 22"/>
@@ -108,13 +108,13 @@
             </svg>
             <span>マニュアル</span>
           </NuxtLink>
-          <NuxtLink to="/tests" class="nav-item">
+          <a href="#" class="nav-item active">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 11 12 14 22 4"/>
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
             </svg>
             <span>テスト</span>
-          </NuxtLink>
+          </a>
           <a href="#" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -139,16 +139,90 @@
               <line x1="12" y1="20" x2="12" y2="4"/>
               <line x1="6" y1="20" x2="6" y2="14"/>
             </svg>
-            <span>設定</span>
+            <span>組織レポート</span>
+          </a>
+          <a href="#" class="nav-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>サポート</span>
           </a>
         </nav>
       </aside>
 
       <!-- メインコンテンツ -->
       <main class="content-area">
-        <div class="home-content">
-          <h1 class="welcome-title">ホーム</h1>
-          <p class="welcome-message">ようこそ、VIVNAIへ</p>
+        <div class="tests-content">
+          <!-- ヘッダー -->
+          <div class="page-header">
+            <h1 class="page-title">テスト一覧</h1>
+            <button 
+              v-if="isOrgAdmin" 
+              class="btn-create-test"
+              @click="router.push('/tests/create')"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+              テストを作成
+            </button>
+          </div>
+
+          <!-- テスト一覧 -->
+          <div v-if="isLoadingTests" class="loading-state">
+            <p>読み込み中...</p>
+          </div>
+
+          <div v-else-if="filteredTests.length === 0" class="empty-state">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="9 11 12 14 22 4"/>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            <p>テストがまだ作成されていません</p>
+            <p v-if="isOrgAdmin" class="empty-hint">「テストを作成」ボタンから新しいテストを作成できます</p>
+          </div>
+
+          <div v-else class="tests-grid">
+            <div 
+              v-for="test in filteredTests" 
+              :key="test.id"
+              class="test-card"
+              @click="handleTestClick(test)"
+            >
+              <div class="test-card-header">
+                <div class="test-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                </div>
+                <div v-if="isOrgAdmin" class="test-actions" @click.stop>
+                  <button class="action-btn" @click="editTest(test.id)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                  </button>
+                  <button class="action-btn delete-btn" @click="deleteTest(test.id)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <h3 class="test-title">{{ test.title }}</h3>
+              <p class="test-video">動画: {{ test.videoTitle }}</p>
+              <div class="test-meta">
+                <span class="test-questions">{{ test.questionCount }}問</span>
+                <span class="test-date">{{ formatDate(test.createdAt) }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
@@ -156,7 +230,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { createClient } from '@supabase/supabase-js'
 
 const router = useRouter()
@@ -174,14 +248,76 @@ const currentUser = ref<{
   user_metadata?: any
 } | null>(null)
 
-// ユーザーメニューの表示状態
 const showUserMenu = ref(false)
+const searchQuery = ref('')
+const isLoadingTests = ref(false)
+const isOrgAdmin = ref(false)
+
+// テストリスト
+const tests = ref<Array<{
+  id: number
+  title: string
+  videoId: number
+  videoTitle: string
+  questionCount: number
+  createdAt: string
+}>>([])
+
+// フィルタリングされたテスト
+const filteredTests = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return tests.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return tests.value.filter(test => 
+    test.title.toLowerCase().includes(query) ||
+    test.videoTitle.toLowerCase().includes(query)
+  )
+})
 
 // アバターの初期文字を取得
-const getAvatarInitial = (name: string) => {
+const getAvatarInitial = (name: string | undefined) => {
   if (!name) return '?'
   const firstChar = name.charAt(0)
   return firstChar.toUpperCase()
+}
+
+// 日付フォーマット
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString)
+  return date.toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+}
+
+// テストリストを取得
+const loadTests = async () => {
+  isLoadingTests.value = true
+  try {
+    if (!supabase) return
+
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: any = {}
+    
+    if (session) {
+      headers['Authorization'] = `Bearer ${session.access_token}`
+    }
+
+    const data = await $fetch('/api/tests', {
+      method: 'GET',
+      headers
+    })
+
+    tests.value = data as any
+    console.log('[TestsIndex] Loaded tests:', tests.value.length)
+  } catch (error) {
+    console.error('Error loading tests:', error)
+    tests.value = []
+  } finally {
+    isLoadingTests.value = false
+  }
 }
 
 // ユーザー情報を取得
@@ -196,9 +332,65 @@ const loadCurrentUser = async () => {
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
       }
+      
+      // 組織管理者かどうかをチェック
+      const userRole = user.user_metadata?.role || user.app_metadata?.role
+      isOrgAdmin.value = userRole === 'org_admin' || userRole === 'organization_admin'
     }
   } catch (error) {
     console.error('Error loading user:', error)
+  }
+}
+
+// テストをクリック
+const handleTestClick = (test: any) => {
+  // 一般ユーザーはテスト受験ページへ
+  // 組織管理者は結果ページへ
+  if (isOrgAdmin.value) {
+    router.push(`/tests/${test.videoId}`)
+  } else {
+    // TODO: テスト受験ページへ遷移
+    alert('テスト受験機能は開発中です')
+  }
+}
+
+// テストを編集
+const editTest = (testId: number) => {
+  router.push(`/tests/edit/${testId}`)
+}
+
+// テストを削除
+const deleteTest = async (testId: number) => {
+  if (!confirm('このテストを削除してもよろしいですか？')) {
+    return
+  }
+
+  try {
+    if (!supabase) {
+      alert('Supabase接続が利用できません')
+      return
+    }
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      alert('ログインが必要です')
+      return
+    }
+
+    await $fetch(`/api/tests/${testId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      }
+    })
+
+    alert('テストを削除しました')
+    
+    // テストリストを再読み込み
+    await loadTests()
+  } catch (error: any) {
+    console.error('Error deleting test:', error)
+    alert('テストの削除に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
   }
 }
 
@@ -220,7 +412,6 @@ const handleLogout = async () => {
       return
     }
     
-    // ログアウト成功
     currentUser.value = null
     showUserMenu.value = false
     router.push('/login')
@@ -238,9 +429,9 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
-// コンポーネントマウント時にユーザー情報を取得
-onMounted(() => {
-  loadCurrentUser()
+onMounted(async () => {
+  await loadCurrentUser()
+  await loadTests()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -250,7 +441,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.home-page {
+/* 基本スタイルは create.vue と同じ */
+.tests-page {
   min-height: 100vh;
   background: #f5f5f5;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -258,12 +450,12 @@ onUnmounted(() => {
 
 /* ヘッダー */
 .header {
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -272,7 +464,6 @@ onUnmounted(() => {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 24px;
 }
 
 .logo {
@@ -349,7 +540,6 @@ onUnmounted(() => {
   background: #f5f5f5;
 }
 
-/* ユーザーメニュー */
 .user-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -416,7 +606,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* メインレイアウト */
 .main-layout {
   display: flex;
   min-height: calc(100vh - 60px);
@@ -481,6 +670,11 @@ onUnmounted(() => {
 
 .nav-item svg {
   flex-shrink: 0;
+  color: #999;
+}
+
+.nav-item.active svg {
+  color: #9333ea;
 }
 
 /* メインコンテンツ */
@@ -488,25 +682,169 @@ onUnmounted(() => {
   flex: 1;
   padding: 40px;
   overflow-y: auto;
+  background: #f5f5f5;
 }
 
-.home-content {
+.tests-content {
   max-width: 1200px;
   margin: 0 auto;
-  text-align: center;
-  padding-top: 100px;
 }
 
-.welcome-title {
-  font-size: 48px;
+/* ページヘッダー */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-size: 28px;
   font-weight: 700;
   color: #333;
+  margin: 0;
+}
+
+.btn-create-test {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: #9333ea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-create-test:hover {
+  background: #7e22ce;
+}
+
+/* 読み込み中・空の状態 */
+.loading-state, .empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: #999;
+}
+
+.empty-state svg {
+  color: #ddd;
+  margin-bottom: 20px;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 16px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  margin-top: 8px !important;
+}
+
+/* テストグリッド */
+.tests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.test-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.test-card:hover {
+  border-color: #9333ea;
+  box-shadow: 0 4px 12px rgba(147, 51, 234, 0.1);
+  transform: translateY(-2px);
+}
+
+.test-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 16px;
 }
 
-.welcome-message {
-  font-size: 18px;
+.test-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.test-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: #f5f5f5;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   color: #666;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.test-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 8px 0;
+}
+
+.test-video {
+  font-size: 14px;
+  color: #666;
+  margin: 0 0 16px 0;
+}
+
+.test-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.test-questions {
+  font-size: 14px;
+  font-weight: 600;
+  color: #9333ea;
+}
+
+.test-date {
+  font-size: 12px;
+  color: #999;
 }
 </style>
 

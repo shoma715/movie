@@ -98,7 +98,7 @@
             </svg>
             <span>コース</span>
           </NuxtLink>
-          <a href="#" class="nav-item">
+          <NuxtLink to="/manuals" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -107,14 +107,14 @@
               <polyline points="10 9 9 9 8 9"/>
             </svg>
             <span>マニュアル</span>
-          </a>
-          <a href="#" class="nav-item">
+          </NuxtLink>
+          <NuxtLink to="/tests" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9 11 12 14 22 4"/>
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
             </svg>
             <span>テスト</span>
-          </a>
+          </NuxtLink>
           <a href="#" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -165,25 +165,41 @@
             <div class="video-player-section">
               <div class="video-player-wrapper">
                 <video 
+                  ref="videoPlayer"
                   :src="video.video_url" 
                   controls 
                   class="video-player"
                   @loadedmetadata="onVideoLoaded"
+                  @play="onVideoPlay"
+                  @ended="onVideoEnded"
+                  @timeupdate="checkVideoProgress"
                 >
                   お使いのブラウザは動画の再生をサポートしていません。
                 </video>
               </div>
               
               <!-- 関連テスト -->
-              <div class="related-test-box">
-                <p>この動画に関連するテストがあります</p>
-                <button class="btn-test">
+              <div class="related-test-box" @click.stop>
+                <div style="flex: 1;">
+                  <p>この動画に関連するテストがあります</p>
+                  <!-- デバッグ用: 削除可能 -->
+                  <p v-if="isOrgAdmin" style="font-size: 10px; color: #999; margin-top: 4px;">
+                    [デバッグ] 組織管理者: {{ isOrgAdmin }}, 動画ID: {{ video?.id }}, テスト: {{ relatedTest ? `ID=${relatedTest.id}` : 'なし' }}
+                  </p>
+                </div>
+                <button 
+                  v-if="relatedTest"
+                  class="btn-test"
+                  type="button"
+                  @click="goToTestPage"
+                >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="9 11 12 14 22 4"/>
                     <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                   </svg>
                   テストはこちら
                 </button>
+                <p v-else style="font-size: 12px; color: #999;">テストが見つかりません</p>
               </div>
             </div>
 
@@ -282,7 +298,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { createClient } from '@supabase/supabase-js'
 
 const route = useRoute()
@@ -334,6 +350,11 @@ const showNewTagInput = ref(false)
 const newTagName = ref('')
 const subtitleLanguage = ref('')
 const subtitleFile = ref<File | null>(null)
+const videoPlayer = ref<HTMLVideoElement | null>(null)
+const isOrgAdmin = ref(false)
+const hasTrackedStart = ref(false)
+const testButton = ref<HTMLButtonElement | null>(null)
+const relatedTest = ref<{ id: number; title: string } | null>(null)
 
 // 動画を読み込む
 const loadVideo = async () => {
@@ -363,6 +384,8 @@ const loadVideo = async () => {
       selectedCategoryId.value = foundVideo.category_id
       // 動画のタグも読み込む
       await loadVideoTags()
+      // 視聴開始の追跡をリセット
+      hasTrackedStart.value = false
     }
   } catch (error) {
     console.error('Error loading video:', error)
@@ -579,6 +602,139 @@ const onVideoLoaded = () => {
   // 動画の長さなどの情報を取得可能
 }
 
+// 動画の再生開始時
+const onVideoPlay = async () => {
+  if (!hasTrackedStart.value && video.value && supabase) {
+    hasTrackedStart.value = true
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        await $fetch(`/api/videos/${video.value.id}/watch-history`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: {
+            isCompleted: false
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Error tracking video start:', error)
+    }
+  }
+}
+
+// 動画が最後まで再生された時
+const onVideoEnded = async () => {
+  if (!video.value || !supabase) return
+  
+  try {
+    console.log('[Video] Video ended - marking as completed')
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      const response = await $fetch(`/api/videos/${video.value.id}/watch-history`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: {
+          isCompleted: true
+        }
+      })
+      console.log('[Video] Watch history updated:', response)
+      alert('動画の視聴が完了しました！テストページで結果を確認できます。')
+    }
+  } catch (error) {
+    console.error('Error tracking video completion:', error)
+  }
+}
+
+// 動画の再生時間を監視して、95%以上再生されたら完了とみなす
+const checkVideoProgress = async (event: Event) => {
+  const videoElement = event.target as HTMLVideoElement
+  if (!videoElement || !video.value || !supabase) return
+  
+  const currentTime = videoElement.currentTime
+  const duration = videoElement.duration
+  
+  if (duration > 0 && currentTime / duration >= 0.95) {
+    // 95%以上再生されたら完了とみなす
+    try {
+      console.log('[Video] Video 95% completed - marking as completed')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        await $fetch(`/api/videos/${video.value.id}/watch-history`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: {
+            isCompleted: true
+          }
+        })
+        console.log('[Video] Watch history updated at 95%')
+      }
+    } catch (error) {
+      console.error('Error tracking video progress:', error)
+    }
+  }
+}
+
+// テスト結果ページに遷移する関数
+// テストページへ遷移
+const goToTestPage = () => {
+  console.log('[VideoDetail] goToTestPage called')
+  console.log('[VideoDetail] relatedTest:', relatedTest.value)
+  console.log('[VideoDetail] isOrgAdmin:', isOrgAdmin.value)
+  
+  if (!relatedTest.value) {
+    console.error('[VideoDetail] No related test found')
+    alert('このテストが見つかりません')
+    return
+  }
+  
+  if (isOrgAdmin.value) {
+    // 組織管理者は結果ページへ
+    const targetPath = `/tests/results/${relatedTest.value.id}`
+    console.log('[VideoDetail] Navigating to results page:', targetPath)
+    router.push(targetPath)
+  } else {
+    // 一般ユーザーはテスト受験ページへ
+    const targetPath = `/tests/take/${relatedTest.value.id}`
+    console.log('[VideoDetail] Navigating to take page:', targetPath)
+    router.push(targetPath)
+  }
+}
+
+const goToResultsPage = () => {
+  console.log('goToResultsPage called!')
+  const videoId = route.params.id
+  console.log('Video ID:', videoId, 'isOrgAdmin:', isOrgAdmin.value)
+  
+  if (videoId) {
+    // 動画IDをテストIDとして使用（将来的には動画からテストIDを取得）
+    const testId = videoId // とりあえず動画IDをテストIDとして使用
+    const targetPath = `/tests/${testId}`
+    console.log('Navigating to:', targetPath)
+    
+    // router.push を使用（Nuxtのルーティング）
+    router.push(targetPath).then(() => {
+      console.log('Navigation successful')
+    }).catch((error) => {
+      console.error('Navigation error:', error)
+      // エラーが発生した場合は window.location を使用
+      if (typeof window !== 'undefined') {
+        window.location.href = targetPath
+      }
+    })
+  } else {
+    console.error('Video ID not found')
+    alert('動画IDが見つかりませんでした')
+  }
+}
+
+
 // ユーザー情報を取得
 const loadCurrentUser = async () => {
   if (!supabase) return
@@ -595,6 +751,10 @@ const loadCurrentUser = async () => {
       if (user.user_metadata?.organization) {
         currentOrganization.value = user.user_metadata.organization
       }
+      // 組織管理者かどうかをチェック
+      const userRole = user.user_metadata?.role || user.app_metadata?.role
+      isOrgAdmin.value = userRole === 'org_admin' || userRole === 'organization_admin'
+      console.log('User role:', userRole, 'isOrgAdmin:', isOrgAdmin.value)
     }
   } catch (error) {
     console.error('Error loading user:', error)
@@ -628,6 +788,53 @@ const handleLogout = async () => {
   }
 }
 
+// 関連するテストを取得
+const loadRelatedTest = async () => {
+  if (!video.value) {
+    console.log('[VideoDetail] No video loaded, skipping test lookup')
+    return
+  }
+  
+  try {
+    console.log('[VideoDetail] Loading related test for video ID:', video.value.id)
+    console.log('[VideoDetail] Current organization:', currentOrganization.value)
+    
+    const queryParams: any = {
+      videoId: video.value.id
+    }
+    
+    // 組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    console.log('[VideoDetail] Fetching tests with params:', queryParams)
+    
+    // @ts-ignore - TypeScript型推論の複雑さを回避
+    const data = await $fetch('/api/tests', {
+      method: 'GET',
+      query: queryParams
+    }) as any[]
+    
+    console.log('[VideoDetail] Test API response:', data)
+    console.log('[VideoDetail] Number of tests found:', data?.length || 0)
+    
+    if (data && data.length > 0) {
+      relatedTest.value = {
+        id: data[0].id,
+        title: data[0].title
+      }
+      console.log('[VideoDetail] Found related test:', relatedTest.value)
+    } else {
+      console.log('[VideoDetail] No related test found for video ID:', video.value.id)
+      relatedTest.value = null
+    }
+  } catch (error) {
+    console.error('[VideoDetail] Error loading related test:', error)
+    relatedTest.value = null
+  }
+}
+
 // メニュー外をクリックしたら閉じる
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
@@ -642,6 +849,7 @@ onMounted(async () => {
   await loadCategories()
   await loadAvailableTags()
   await loadVideoTags()
+  await loadRelatedTest()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -966,6 +1174,8 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .related-test-box p {
@@ -975,7 +1185,7 @@ onUnmounted(() => {
 }
 
 .btn-test {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
@@ -986,10 +1196,21 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  position: relative;
+  z-index: 100;
+  pointer-events: auto;
+  text-decoration: none;
+  flex-shrink: 0;
 }
 
 .btn-test:hover {
   background: #2563eb;
+  color: white;
+}
+
+.btn-test:active {
+  background: #1d4ed8;
+  color: white;
 }
 
 /* 右サイドバー（設定） */
