@@ -353,6 +353,9 @@ const currentUser = ref<{
   user_metadata?: any
 } | null>(null)
 
+// 現在の組織
+const currentOrganization = ref<string | null>(null)
+
 const showUserMenu = ref(false)
 const isSaving = ref(false)
 
@@ -396,6 +399,11 @@ const loadCurrentUser = async () => {
         user_metadata: user.user_metadata
       }
       
+      // 組織情報を取得
+      if (user.user_metadata?.organization) {
+        currentOrganization.value = user.user_metadata.organization
+      }
+      
       // 組織管理者かどうかをチェック
       const userRole = user.user_metadata?.role || user.app_metadata?.role
       if (userRole !== 'org_admin' && userRole !== 'organization_admin') {
@@ -415,8 +423,16 @@ const loadCurrentUser = async () => {
 // 動画リストを取得
 const loadVideos = async () => {
   try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
     const data = await $fetch('/api/videos', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     videos.value = (data || []).map((v: any) => ({
       id: v.id,
