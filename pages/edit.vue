@@ -2022,6 +2022,21 @@ const completeVideo = async () => {
     isCompleting.value = true
     console.log('[Complete] Starting video concatenation')
     
+    // 連結前に、各カットにテキスト・画像オーバーレイを自動適用
+    // finalVideoUrl が既にあるカットは再処理しない
+    for (const cut of cuts.value) {
+      if (!cut) continue
+      if (!cut.trimmedVideoUrl) continue
+      if (cut.finalVideoUrl) continue
+      if (cut.textItems.length === 0 && cut.imageItems.length === 0) continue
+      
+      // 対象カットをアクティブにして、既存の applyOverlays を再利用
+      activeCutId.value = cut.id
+      trimmedVideoUrl.value = cut.trimmedVideoUrl
+      console.log('[Complete] Auto applying overlays for cut:', cut.id)
+      await applyOverlays()
+    }
+    
     // 各カットの最終ファイルを取得（finalVideoUrlがあればそれ、なければtrimmedVideoUrl）
     const videoFiles: string[] = []
     for (let i = 0; i < cuts.value.length; i++) {
