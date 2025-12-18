@@ -157,7 +157,7 @@ const imageItems = computed({
 
 // メディアライブラリ関連
 const showMediaLibrary = ref(false)
-const uploadedVideos = ref<Array<{ id: string; url: string; name: string }>>([])
+const uploadedVideos = ref<Array<{ id: string; url: string; name: string; originalName: string | null; createdAt: string | null }>>([])
 const isLoadingMediaLibrary = ref(false)
 const mediaLibraryError = ref<string | null>(null)
 
@@ -816,23 +816,55 @@ const loadMediaLibrary = async () => {
       return true
     })
     
-    uploadedVideos.value = filteredData.map((file) => ({
-      id: file.id || file.name,
-      name: file.name,
-      url: '' // URLは後で取得
-    }))
+    // ローカルストレージからファイル名マッピングを取得
+    let fileNameMapping: Record<string, string> = {}
+    try {
+      fileNameMapping = JSON.parse(localStorage.getItem('videoFileNameMapping') || '{}')
+      console.log('[MediaLibrary] Loaded file name mapping from localStorage:', Object.keys(fileNameMapping).length, 'entries')
+    } catch (storageError) {
+      console.warn('[MediaLibrary] Could not load file name mapping from localStorage:', storageError)
+    }
+    
+    uploadedVideos.value = filteredData.map((file: any) => {
+      // メタデータの取得を試みる（複数の可能性を確認）
+      let originalName = null
+      if (file.metadata?.originalName) {
+        originalName = file.metadata.originalName
+      } else if (file.metadata && typeof file.metadata === 'object' && 'originalName' in file.metadata) {
+        originalName = file.metadata.originalName
+      } else if (fileNameMapping[file.name]) {
+        // ローカルストレージから取得
+        originalName = fileNameMapping[file.name]
+        console.log('[MediaLibrary] Got original name from localStorage:', file.name, '->', originalName)
+      }
+      
+      return {
+        id: file.id || file.name,
+        name: file.name,
+        originalName: originalName,
+        url: '', // URLは後で取得
+        createdAt: file.created_at || null
+      }
+    })
     
     console.log('[MediaLibrary] Mapped videos:', uploadedVideos.value.length)
     
-    // 各動画のURLを取得
+    // 各動画のURLとメタデータを取得
     for (const video of uploadedVideos.value) {
       try {
+        // URLを取得
         const { data: urlData } = await supabase.storage
           .from('videos')
           .getPublicUrl(video.name)
         if (urlData) {
           video.url = urlData.publicUrl
           console.log('[MediaLibrary] Got URL for:', video.name)
+        }
+        
+        // メタデータがまだ取得できていない場合、ローカルストレージから取得を試みる
+        if (!video.originalName && fileNameMapping[video.name]) {
+          video.originalName = fileNameMapping[video.name] || null
+          console.log('[MediaLibrary] Got original name from localStorage (fallback):', video.name, '->', video.originalName)
         }
       } catch (urlError) {
         console.warn(`[MediaLibrary] Could not get URL for ${video.name}:`, urlError)
@@ -899,6 +931,8 @@ const uploadVideoToSupabase = async (file: File) => {
       return
     }
     
+    // Supabase上の物理ファイル名は英数字のみの安全な名前を付与し、
+    // 元のPC上のファイル名は metadata.originalName として保持する
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
     const filePath = fileName
@@ -908,8 +942,23 @@ const uploadVideoToSupabase = async (file: File) => {
       .from('videos')
       .upload(filePath, file, {
         cacheControl: '3600',
-        upsert: false
+        upsert: false,
+        metadata: {
+          originalName: file.name
+        }
       })
+    
+    // ローカルストレージにファイル名マッピングを保存（メタデータが取得できない場合のフォールバック）
+    if (!uploadError) {
+      try {
+        const fileNameMapping = JSON.parse(localStorage.getItem('videoFileNameMapping') || '{}')
+        fileNameMapping[fileName] = file.name
+        localStorage.setItem('videoFileNameMapping', JSON.stringify(fileNameMapping))
+        console.log('[Upload] Saved file name mapping to localStorage:', fileName, '->', file.name)
+      } catch (storageError) {
+        console.warn('[Upload] Could not save file name mapping to localStorage:', storageError)
+      }
+    }
     
     if (uploadError) {
       console.error('[Upload] Upload error:', uploadError)
@@ -1985,7 +2034,7 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
     })
 
     console.log('[Save] Video saved successfully:', response)
-    alert('動画をコースに保存しました。')
+    alert('動画をマニュアルに保存しました。')
   } catch (error: any) {
     console.error('[Save] Error saving completed video:', error)
     // Nuxtの$fetchエラーでは、エラーメッセージはerror.data.messageまたはerror.messageに含まれる
@@ -2629,11 +2678,19 @@ const completeVideo = async () => {
             @click="selectVideoFromLibrary(video)"
           >
             <div class="media-thumbnail">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
+              <!-- 冒頭フレームをサムネイルとして表示 -->
+              <video
+                :src="video.url"
+                preload="metadata"
+                muted
+                playsinline
+                class="media-video-thumb"
+              ></video>
             </div>
-            <p class="media-name">{{ video.name }}</p>
+            <p class="media-name">{{ video.originalName || video.name }}</p>
+            <p v-if="video.createdAt" class="media-date">
+              {{ new Date(video.createdAt).toLocaleString('ja-JP') }}
+            </p>
           </div>
         </div>
 
@@ -3698,14 +3755,19 @@ video::-webkit-media-controls-time-remaining-display {
 
 .media-thumbnail {
   width: 100%;
-  height: 120px;
-  background: #f5f5f5;
+  height: 200px;
+  background: #000;
   border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #666;
+  overflow: hidden;
   margin-bottom: 10px;
+}
+
+.media-video-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;      /* アスペクト比を維持して全体を表示 */
+  background: #000;         /* 余白は黒でレターボックス風に */
+  display: block;
 }
 
 .media-name {
@@ -3713,6 +3775,12 @@ video::-webkit-media-controls-time-remaining-display {
   font-size: 14px;
   color: #333;
   word-break: break-all;
+}
+
+.media-date {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: #777;
 }
 
 /* メディアがない場合のメッセージ */

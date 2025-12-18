@@ -41,7 +41,7 @@
             class="user-profile" 
             @click="showUserMenu = !showUserMenu"
           >
-            <div class="avatar">{{ getAvatarInitial(currentUser.displayName || currentUser.email) }}</div>
+            <div class="avatar">{{ getAvatarInitial(currentUser.displayName || currentUser.email || '') }}</div>
             <span class="username">{{ currentUser.displayName || currentUser.email?.split('@')[0] || 'ユーザー' }}</span>
           </div>
           <div 
