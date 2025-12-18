@@ -171,6 +171,21 @@ const trimmedVideoRef = ref<HTMLVideoElement | null>(null)
 const videoWidth = ref<number>(1920) // デフォルト値
 const videoHeight = ref<number>(1080) // デフォルト値
 
+// 時間表示用のフォーマット関数（小数点第2位まで）
+const formatTime = (seconds: number) => {
+  if (!isFinite(seconds) || seconds < 0) return '0:00.00'
+  const mins = Math.floor(seconds / 60)
+  const secs = (seconds % 60).toFixed(2)
+  return `${mins}:${secs.padStart(5, '0')}`
+}
+
+// 各動画の再生時間表示用
+const originalCurrentTime = ref(0)
+const originalDuration = ref(0)
+const trimmedDuration = ref(0)
+const finalCurrentTime = ref(0)
+const finalDuration = ref(0)
+
 // カットの追加
 const addCut = () => {
   const newCut: Cut = {
@@ -364,10 +379,26 @@ const clearFinalVideo = () => {
   finalVideoUrl.value = null
 }
 
+// 元動画の時間更新
+const handleOriginalTimeUpdate = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  originalCurrentTime.value = video.currentTime || 0
+  originalDuration.value = video.duration || originalDuration.value
+}
+
+// 元動画のメタデータ読み込み時
+const handleOriginalLoadedMetadata = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  if (isFinite(video.duration)) {
+    originalDuration.value = video.duration
+  }
+}
+
 // トリミング後動画の時間更新（リアルタイムプレビュー用）
 const handleTrimmedTimeUpdate = (event: Event) => {
   const video = event.target as HTMLVideoElement
   trimmedVideoCurrentTime.value = video.currentTime || 0
+  trimmedDuration.value = video.duration || trimmedDuration.value
   
   // 動画のサイズを取得
   if (video.videoWidth && video.videoHeight) {
@@ -376,12 +407,30 @@ const handleTrimmedTimeUpdate = (event: Event) => {
   }
 }
 
-// 動画のメタデータ読み込み時にサイズを取得
+// トリミング後動画のメタデータ読み込み時
 const handleVideoLoadedMetadata = (event: Event) => {
   const video = event.target as HTMLVideoElement
   if (video.videoWidth && video.videoHeight) {
     videoWidth.value = video.videoWidth
     videoHeight.value = video.videoHeight
+  }
+  if (isFinite(video.duration)) {
+    trimmedDuration.value = video.duration
+  }
+}
+
+// 最終動画の時間更新
+const handleFinalTimeUpdate = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  finalCurrentTime.value = video.currentTime || 0
+  finalDuration.value = video.duration || finalDuration.value
+}
+
+// 最終動画のメタデータ読み込み時
+const handleFinalLoadedMetadata = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  if (isFinite(video.duration)) {
+    finalDuration.value = video.duration
   }
 }
 
@@ -2360,7 +2409,16 @@ const completeVideo = async () => {
               >
                 ×
               </button>
-              <video :src="videoUrl" controls class="video-preview"></video>
+              <video
+                :src="videoUrl"
+                controls
+                class="video-preview"
+                @timeupdate="handleOriginalTimeUpdate"
+                @loadedmetadata="handleOriginalLoadedMetadata"
+              ></video>
+              <div class="time-overlay bottom-left">
+                {{ formatTime(originalCurrentTime) }} / {{ formatTime(originalDuration) }}
+              </div>
             </div>
           </div>
           <button class="media-select-btn" @click="openMediaLibrary">
@@ -2430,6 +2488,9 @@ const completeVideo = async () => {
               class="video-preview"
               @timeupdate="handleTrimmedTimeUpdate"
             ></video>
+            <div class="time-overlay bottom-left">
+              {{ formatTime(trimmedVideoCurrentTime) }} / {{ formatTime(trimmedDuration) }}
+            </div>
 
             <!-- リアルタイムプレビュー用テキストオーバーレイ -->
             <div class="overlay-layer">
@@ -2486,7 +2547,16 @@ const completeVideo = async () => {
             >
               ×
             </button>
-            <video :src="finalVideoUrl" controls class="video-preview"></video>
+            <video
+              :src="finalVideoUrl"
+              controls
+              class="video-preview"
+              @timeupdate="handleFinalTimeUpdate"
+              @loadedmetadata="handleFinalLoadedMetadata"
+            ></video>
+            <div class="time-overlay bottom-left">
+              {{ formatTime(finalCurrentTime) }} / {{ formatTime(finalDuration) }}
+            </div>
           </div>
           <div class="download-section">
             <button class="download-btn" @click="downloadFinalVideo">
@@ -3207,6 +3277,36 @@ const completeVideo = async () => {
   width: 100%;
   max-height: 600px;
   border-radius: 12px;
+}
+
+/* 再生時間オーバーレイ（小数点第2位まで） */
+.time-overlay {
+  position: absolute;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: none;
+  z-index: 9;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8); /* 読みやすさだけ確保 */
+}
+
+.time-overlay.top-left {
+  top: 12px;
+  left: 48px; /* 閉じるボタンと被らないよう少し右にずらす */
+}
+
+.time-overlay.bottom-left {
+  bottom: 42px;        /* もう少し上に（再生ボタンとほぼ同じ高さ） */
+  left: 42px;          /* 再生マークのすぐ右横に微調整 */
+}
+
+/* ブラウザ標準の時間表示を隠して、重なりを防ぐ（対応ブラウザのみ） */
+video::-webkit-media-controls-current-time-display,
+video::-webkit-media-controls-time-remaining-display {
+  display: none;
 }
 
 /* 元動画セクション */

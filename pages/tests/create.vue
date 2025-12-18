@@ -466,6 +466,7 @@ const removeQuestion = (index: number) => {
 // 選択肢の数を変更
 const setChoiceCount = (questionIndex: number, count: number) => {
   const question = testData.value.questions[questionIndex]
+  if (!question) return
   const currentCount = question.choices.length
   
   if (count > currentCount) {
@@ -482,6 +483,7 @@ const setChoiceCount = (questionIndex: number, count: number) => {
 // 正解チェックボックスの変更処理
 const handleCorrectChange = (questionIndex: number, choiceIndex: number) => {
   const question = testData.value.questions[questionIndex]
+  if (!question) return
   
   // 単一選択の場合、他の選択肢のチェックを外す
   if (question.type === 'single') {
@@ -514,6 +516,9 @@ const handleSave = async () => {
   // 各問いのバリデーション
   for (let i = 0; i < testData.value.questions.length; i++) {
     const question = testData.value.questions[i]
+    if (!question) {
+      continue
+    }
     
     if (!question.text.trim()) {
       alert(`問い${i + 1}の問題文を入力してください`)

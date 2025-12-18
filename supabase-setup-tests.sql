@@ -276,3 +276,4 @@ COMMENT ON COLUMN public.test_answers.attempt_id IS '受験履歴ID';
 COMMENT ON COLUMN public.test_answers.question_id IS '問題ID';
 COMMENT ON COLUMN public.test_answers.choice_id IS '選択肢ID';
 
+

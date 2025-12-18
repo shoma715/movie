@@ -167,7 +167,7 @@
                 <video 
                   ref="videoPlayer"
                   :src="video.video_url" 
-                  controls 
+                  controls
                   class="video-player"
                   @loadedmetadata="onVideoLoaded"
                   @play="onVideoPlay"
@@ -599,7 +599,7 @@ const addSubtitle = () => {
 
 // 動画のメタデータが読み込まれた時
 const onVideoLoaded = () => {
-  // 動画の長さなどの情報を取得可能
+  // 必要ならここでメタデータを利用
 }
 
 // 動画の再生開始時
@@ -1164,6 +1164,7 @@ onUnmounted(() => {
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 16px;
+  position: relative;
 }
 
 .video-player {

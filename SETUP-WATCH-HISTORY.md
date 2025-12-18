@@ -58,3 +58,4 @@ npm run dev
 3. Supabaseのテーブルエディタで`video_watch_history`テーブルが存在することを確認
 4. RLSポリシーが正しく設定されていることを確認
 
+
