@@ -40,3 +40,4 @@ CREATE POLICY "Users can update their own watch history"
 
 
 
+

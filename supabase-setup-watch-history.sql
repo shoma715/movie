@@ -59,3 +59,4 @@ COMMENT ON COLUMN public.video_watch_history.completed_at IS '視聴完了日時
 COMMENT ON COLUMN public.video_watch_history.is_completed IS '視聴完了フラグ';
 
 
+

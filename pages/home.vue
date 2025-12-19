@@ -91,7 +91,7 @@
             </svg>
             <span>ブックマーク</span>
           </a>
-          <NuxtLink to="/" class="nav-item">
+          <NuxtLink to="/courses" class="nav-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
               <polygon points="10 8 16 12 10 16 10 8"/>
@@ -156,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { createClient } from '@supabase/supabase-js'
 
 const router = useRouter()
@@ -196,11 +196,13 @@ const loadCurrentUser = async () => {
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
       }
+      
     }
   } catch (error) {
     console.error('Error loading user:', error)
   }
 }
+
 
 const navigateToEdit = () => {
   router.push('/edit')
