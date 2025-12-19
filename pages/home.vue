@@ -3,7 +3,7 @@
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
-        <div class="logo">VIVNAI</div>
+        <div class="logo">マナベル</div>
       </div>
       <div class="header-center">
         <div class="search-bar">
@@ -148,7 +148,7 @@
       <main class="content-area">
         <div class="home-content">
           <h1 class="welcome-title">ホーム</h1>
-          <p class="welcome-message">ようこそ、VIVNAIへ</p>
+          <p class="welcome-message">ようこそ、マナベルへ</p>
         </div>
       </main>
     </div>

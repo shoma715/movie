@@ -9,7 +9,7 @@
             <path d="M2 17l10 5 10-5"/>
             <path d="M2 12l10 5 10-5"/>
           </svg>
-          <span>VIVNAI</span>
+          <span>マナベル</span>
         </div>
       </div>
       <button class="create-btn">

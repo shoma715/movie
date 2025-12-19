@@ -316,7 +316,7 @@ onUnmounted(() => {
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
-        <div class="logo">VIVNAI</div>
+        <div class="logo">マナベル</div>
       </div>
       <div class="header-center">
         <div class="search-bar">

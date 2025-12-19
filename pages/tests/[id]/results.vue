@@ -3,7 +3,7 @@
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
-        <div class="logo">VIVNAI</div>
+        <div class="logo">マナベル</div>
       </div>
       <div class="header-right">
         <div class="user-profile-container">
