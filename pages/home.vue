@@ -74,73 +74,175 @@
     <div class="main-layout">
       <!-- サイドバー -->
       <aside class="sidebar">
-        <button class="create-btn" @click="navigateToEdit">
-          <span>+ 作成</span>
-        </button>
+        <div class="create-btn-wrapper">
+          <button class="create-btn" @click="navigateToEdit">
+            <span>+ 作成</span>
+          </button>
+          <HelpTooltip
+            title="作成ボタン"
+            text="新しい動画マニュアルを作成します。"
+            :features="[
+              '動画をアップロードしてマニュアルを作成',
+              '動画の編集（カット、一時停止、テキスト追加）',
+              '自動文字起こしと字幕生成',
+              '多言語字幕の追加'
+            ]"
+            placement="right"
+          />
+        </div>
         <nav class="nav-menu">
-          <NuxtLink to="/home" class="nav-item active">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-              <polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-            <span>ホーム</span>
-          </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-            </svg>
-            <span>ブックマーク</span>
-          </a>
-          <NuxtLink to="/courses" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <polygon points="10 8 16 12 10 16 10 8"/>
-            </svg>
-            <span>コース</span>
-          </NuxtLink>
-          <NuxtLink to="/manuals" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-              <polyline points="10 9 9 9 8 9"/>
-            </svg>
-            <span>マニュアル</span>
-          </NuxtLink>
-          <NuxtLink to="/tests" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9 11 12 14 22 4"/>
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-            </svg>
-            <span>テスト</span>
-          </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-              <line x1="7" y1="7" x2="7.01" y2="7"/>
-            </svg>
-            <span>タグ</span>
-          </a>
-          <NuxtLink 
-            v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" 
-            to="/organization" 
-            class="nav-item"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
-            </svg>
-            <span>組織設定</span>
-          </NuxtLink>
-          <a href="#" class="nav-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="20" x2="18" y2="10"/>
-              <line x1="12" y1="20" x2="12" y2="4"/>
-              <line x1="6" y1="20" x2="6" y2="14"/>
-            </svg>
-            <span>設定</span>
-          </a>
+          <div class="nav-item-wrapper">
+            <NuxtLink to="/home" class="nav-item active">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+              <span>ホーム</span>
+            </NuxtLink>
+            <HelpTooltip
+              text="アプリケーションのホーム画面です。ダッシュボードや概要情報を確認できます。"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <a href="#" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+              <span>ブックマーク</span>
+            </a>
+            <HelpTooltip
+              text="お気に入りの動画やマニュアルをブックマークして、後から簡単にアクセスできます。"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <NuxtLink to="/courses" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="10 8 16 12 10 16 10 8"/>
+              </svg>
+              <span>コース</span>
+            </NuxtLink>
+            <HelpTooltip
+              title="コース"
+              text="複数の動画をまとめたコースを作成・管理できます。"
+              :features="[
+                'コースごとに進捗状況を確認',
+                '視聴済みの動画を把握',
+                'コース内の動画を整理'
+              ]"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <NuxtLink to="/manuals" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+              </svg>
+              <span>マニュアル</span>
+            </NuxtLink>
+            <HelpTooltip
+              title="マニュアル"
+              text="アップロード済みの動画を視聴・管理できます。"
+              :features="[
+                'カテゴリ別に整理',
+                '視聴履歴の確認',
+                '動画の検索とフィルタリング'
+              ]"
+              placement="right"
+            />
+          </div>
+          <div v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" class="nav-item-wrapper">
+            <NuxtLink to="/drafts" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <span>下書き</span>
+            </NuxtLink>
+            <HelpTooltip
+              title="下書き"
+              text="編集中の動画を一時保存できます。後から編集を再開できます。"
+              :features="[
+                '編集中の動画を保存',
+                '後から編集を再開',
+                '管理者のみ利用可能'
+              ]"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <NuxtLink to="/tests" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 11 12 14 22 4"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              <span>テスト</span>
+            </NuxtLink>
+            <HelpTooltip
+              title="テスト"
+              text="動画に関連したクイズ形式のテストを作成・編集します。"
+              :features="[
+                '学習効果を確認するための問題を作成',
+                'テスト結果の確認',
+                '複数選択問題や記述問題の設定'
+              ]"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <a href="#" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                <line x1="7" y1="7" x2="7.01" y2="7"/>
+              </svg>
+              <span>タグ</span>
+            </a>
+            <HelpTooltip
+              text="動画やマニュアルにタグを付けて分類・検索しやすくします。"
+              placement="right"
+            />
+          </div>
+          <div v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" class="nav-item-wrapper">
+            <NuxtLink to="/organization" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="9" y1="3" x2="9" y2="21"/>
+              </svg>
+              <span>組織設定</span>
+            </NuxtLink>
+            <HelpTooltip
+              title="組織設定"
+              text="ユーザーの招待や権限（管理者/一般）の設定を行います。"
+              :features="[
+                '組織内のメンバー管理',
+                'ユーザーの招待',
+                '権限の設定'
+              ]"
+              placement="right"
+            />
+          </div>
+          <div class="nav-item-wrapper">
+            <a href="#" class="nav-item">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="20" x2="18" y2="10"/>
+                <line x1="12" y1="20" x2="12" y2="4"/>
+                <line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+              <span>設定</span>
+            </a>
+            <HelpTooltip
+              text="アプリケーションの各種設定を変更できます。"
+              placement="right"
+            />
+          </div>
         </nav>
       </aside>
 
@@ -435,8 +537,19 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-.create-btn {
+.create-btn-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   width: 100%;
+}
+
+.create-btn-wrapper:hover :deep(.help-icon-btn) {
+  opacity: 1;
+}
+
+.create-btn {
+  flex: 1;
   padding: 12px;
   background: #9333ea;
   color: white;
@@ -452,6 +565,17 @@ onUnmounted(() => {
   background: #7e22ce;
 }
 
+.nav-item-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.nav-item-wrapper:hover :deep(.help-icon-btn) {
+  opacity: 1;
+}
+
 .nav-menu {
   display: flex;
   flex-direction: column;
@@ -459,6 +583,7 @@ onUnmounted(() => {
 }
 
 .nav-item {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 12px;

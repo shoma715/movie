@@ -1,12 +1,12 @@
 export default defineEventHandler(async (event) => {
   try {
-    const id = getRouterParam(event, 'id')
-    const body = await readBody(event)
+    const query = getQuery(event)
+    const userId = query.user_id as string
 
-    if (!id) {
+    if (!userId) {
       throw createError({
         statusCode: 400,
-        message: '動画IDは必須です'
+        message: 'ユーザーIDは必須です'
       })
     }
 
@@ -31,38 +31,29 @@ export default defineEventHandler(async (event) => {
 
     const { data, error } = await supabaseAdmin
       .from('videos')
-      .update(body)
-      .eq('id', id)
-      .select()
-      .single()
+      .select('id, title, draft_data, created_at')
+      .eq('user_id', userId)
+      .eq('is_draft', true)
+      .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Error updating video:', error)
+      console.error('[API/Videos/Drafts] Error fetching drafts:', error)
       throw createError({
         statusCode: 500,
-        message: error.message || '動画の更新に失敗しました'
+        message: `下書きの取得に失敗しました: ${error.message}`
       })
     }
 
-    return data
+    return data || []
   } catch (error: any) {
-    console.error('Error in video update API:', error)
+    console.error('Error in drafts fetch API:', error)
     if (error.statusCode) {
       throw error
     }
     throw createError({
       statusCode: 500,
-      message: error.message || '動画の更新に失敗しました'
+      message: error.message || '下書きの取得に失敗しました'
     })
   }
 })
-
-
-
-
-
-
-
-
-
 

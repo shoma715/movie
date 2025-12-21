@@ -1,5 +1,5 @@
 <template>
-  <div class="tests-page">
+  <div class="drafts-page">
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
@@ -41,7 +41,7 @@
             class="user-profile" 
             @click="showUserMenu = !showUserMenu"
           >
-            <div class="avatar">{{ getAvatarInitial(currentUser.displayName || currentUser.email) }}</div>
+            <div class="avatar">{{ getAvatarInitial(currentUser.displayName || currentUser.email || '') }}</div>
             <span class="username">{{ currentUser.displayName || currentUser.email?.split('@')[0] || 'ユーザー' }}</span>
           </div>
           <div 
@@ -158,7 +158,7 @@
             />
           </div>
           <div v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" class="nav-item-wrapper">
-            <NuxtLink to="/drafts" class="nav-item">
+            <NuxtLink to="/drafts" class="nav-item active">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
@@ -179,7 +179,7 @@
             />
           </div>
           <div class="nav-item-wrapper">
-            <NuxtLink to="/tests" class="nav-item active">
+            <NuxtLink to="/tests" class="nav-item">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9 11 12 14 22 4"/>
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
@@ -236,24 +236,10 @@
                 <line x1="12" y1="20" x2="12" y2="4"/>
                 <line x1="6" y1="20" x2="6" y2="14"/>
               </svg>
-              <span>組織レポート</span>
+              <span>設定</span>
             </a>
             <HelpTooltip
-              text="組織の利用状況や統計情報を確認できます。"
-              placement="right"
-            />
-          </div>
-          <div class="nav-item-wrapper">
-            <a href="#" class="nav-item">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                <line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              <span>サポート</span>
-            </a>
-            <HelpTooltip
-              text="ヘルプやサポート情報を確認できます。"
+              text="アプリケーションの各種設定を変更できます。"
               placement="right"
             />
           </div>
@@ -262,72 +248,60 @@
 
       <!-- メインコンテンツ -->
       <main class="content-area">
-        <div class="tests-content">
+        <div class="drafts-content">
           <!-- ヘッダー -->
           <div class="page-header">
-            <h1 class="page-title">テスト一覧</h1>
-            <button 
-              v-if="isOrgAdmin" 
-              class="btn-create-test"
-              @click="router.push('/tests/create')"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="16"/>
-                <line x1="8" y1="12" x2="16" y2="12"/>
-              </svg>
-              テストを作成
-            </button>
+            <h1 class="page-title">下書き一覧</h1>
           </div>
 
-          <!-- テスト一覧 -->
-          <div v-if="isLoadingTests" class="loading-state">
+          <!-- 下書き一覧 -->
+          <div v-if="isLoadingDrafts" class="loading-state">
             <p>読み込み中...</p>
           </div>
 
-          <div v-else-if="filteredTests.length === 0" class="empty-state">
+          <div v-else-if="filteredDrafts.length === 0" class="empty-state">
             <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polyline points="9 11 12 14 22 4"/>
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
             </svg>
-            <p>テストがまだ作成されていません</p>
-            <p v-if="isOrgAdmin" class="empty-hint">「テストを作成」ボタンから新しいテストを作成できます</p>
+            <p>下書きがまだありません</p>
+            <p class="empty-hint">編集画面で「下書き保存」ボタンから下書きを保存できます</p>
           </div>
 
-          <div v-else class="tests-grid">
+          <div v-else class="drafts-grid">
             <div 
-              v-for="test in filteredTests" 
-              :key="test.id"
-              class="test-card"
-              @click="handleTestClick(test)"
+              v-for="draft in filteredDrafts" 
+              :key="draft.id"
+              class="draft-card"
+              @click="openDraft(draft)"
             >
-              <div class="test-card-header">
-                <div class="test-icon">
+              <div class="draft-card-header">
+                <div class="draft-icon">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="9 11 12 14 22 4"/>
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
                   </svg>
                 </div>
-                <div v-if="isOrgAdmin" class="test-actions" @click.stop>
-                  <button class="action-btn" @click="editTest(test.id)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                  </button>
-                  <button class="action-btn delete-btn" @click="deleteTest(test.id)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="3 6 5 6 21 6"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                  </button>
-                </div>
+                <button 
+                  class="draft-delete-btn"
+                  @click.stop="deleteDraft(draft.id)"
+                  title="削除"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
               </div>
-              <h3 class="test-title">{{ test.title }}</h3>
-              <p class="test-video">動画: {{ test.videoTitle }}</p>
-              <div class="test-meta">
-                <span class="test-questions">{{ test.questionCount }}問</span>
-                <span class="test-date">{{ formatDate(test.createdAt) }}</span>
+              <div class="draft-card-body">
+                <h3 class="draft-title">{{ draft.title || '無題の下書き' }}</h3>
+                <p class="draft-date">
+                  {{ formatDate(draft.created_at) }}
+                </p>
               </div>
             </div>
           </div>
@@ -356,76 +330,14 @@ const currentUser = ref<{
   user_metadata?: any
 } | null>(null)
 
+// ユーザーメニューの表示状態
 const showUserMenu = ref(false)
-const searchQuery = ref('')
-const isLoadingTests = ref(false)
-const isOrgAdmin = ref(false)
-
-// テストリスト
-const tests = ref<Array<{
-  id: number
-  title: string
-  videoId: number
-  videoTitle: string
-  questionCount: number
-  createdAt: string
-}>>([])
-
-// フィルタリングされたテスト
-const filteredTests = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return tests.value
-  }
-  const query = searchQuery.value.toLowerCase()
-  return tests.value.filter(test => 
-    test.title.toLowerCase().includes(query) ||
-    test.videoTitle.toLowerCase().includes(query)
-  )
-})
 
 // アバターの初期文字を取得
-const getAvatarInitial = (name: string | undefined) => {
+const getAvatarInitial = (name: string) => {
   if (!name) return '?'
   const firstChar = name.charAt(0)
   return firstChar.toUpperCase()
-}
-
-// 日付フォーマット
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  })
-}
-
-// テストリストを取得
-const loadTests = async () => {
-  isLoadingTests.value = true
-  try {
-    if (!supabase) return
-
-    const { data: { session } } = await supabase.auth.getSession()
-    const headers: any = {}
-    
-    if (session) {
-      headers['Authorization'] = `Bearer ${session.access_token}`
-    }
-
-    const data = await $fetch('/api/tests', {
-      method: 'GET',
-      headers
-    })
-
-    tests.value = data as any
-    console.log('[TestsIndex] Loaded tests:', tests.value.length)
-  } catch (error) {
-    console.error('Error loading tests:', error)
-    tests.value = []
-  } finally {
-    isLoadingTests.value = false
-  }
 }
 
 // ユーザー情報を取得
@@ -440,65 +352,9 @@ const loadCurrentUser = async () => {
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
       }
-      
-      // 組織管理者かどうかをチェック
-      const userRole = user.user_metadata?.role || user.app_metadata?.role
-      isOrgAdmin.value = userRole === 'org_admin' || userRole === 'organization_admin'
     }
   } catch (error) {
     console.error('Error loading user:', error)
-  }
-}
-
-// テストをクリック
-const handleTestClick = (test: any) => {
-  // 一般ユーザーはテスト受験ページへ
-  // 組織管理者は結果ページへ
-  if (isOrgAdmin.value) {
-    router.push(`/tests/${test.videoId}/results`)
-  } else {
-    // TODO: テスト受験ページへ遷移
-    router.push(`/tests/take/${test.id}`)
-  }
-}
-
-// テストを編集
-const editTest = (testId: number) => {
-  router.push(`/tests/edit/${testId}`)
-}
-
-// テストを削除
-const deleteTest = async (testId: number) => {
-  if (!confirm('このテストを削除してもよろしいですか？')) {
-    return
-  }
-
-  try {
-    if (!supabase) {
-      alert('Supabase接続が利用できません')
-      return
-    }
-
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      alert('ログインが必要です')
-      return
-    }
-
-    await $fetch(`/api/tests/${testId}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`
-      }
-    })
-
-    alert('テストを削除しました')
-    
-    // テストリストを再読み込み
-    await loadTests()
-  } catch (error: any) {
-    console.error('Error deleting test:', error)
-    alert('テストの削除に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
   }
 }
 
@@ -537,9 +393,87 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 }
 
+// 下書き関連
+const drafts = ref<Array<{
+  id: number
+  title: string
+  draft_data: any
+  created_at: string
+  updated_at: string
+}>>([])
+const isLoadingDrafts = ref(false)
+const searchQuery = ref('')
+
+// 下書きを取得
+const loadDrafts = async () => {
+  if (!currentUser.value || !supabase) return
+
+  isLoadingDrafts.value = true
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const data = await $fetch('/api/videos/drafts', {
+      query: { user_id: user.id }
+    })
+    drafts.value = (data || []) as any[]
+  } catch (error) {
+    console.error('Error loading drafts:', error)
+    drafts.value = []
+  } finally {
+    isLoadingDrafts.value = false
+  }
+}
+
+// 検索フィルタリング
+const filteredDrafts = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return drafts.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return drafts.value.filter(draft => 
+    draft.title.toLowerCase().includes(query)
+  )
+})
+
+// 日付フォーマット
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString)
+  return date.toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// 下書きを開く
+const openDraft = (draft: any) => {
+  router.push(`/edit?draft_id=${draft.id}`)
+}
+
+// 下書きを削除
+const deleteDraft = async (draftId: number) => {
+  if (!confirm('この下書きを削除しますか？')) {
+    return
+  }
+
+  try {
+    // 削除APIを呼び出す（必要に応じて実装）
+    await $fetch(`/api/videos/${draftId}`, {
+      method: 'DELETE'
+    })
+    await loadDrafts()
+  } catch (error) {
+    console.error('Error deleting draft:', error)
+    alert('下書きの削除に失敗しました')
+  }
+}
+
 onMounted(async () => {
   await loadCurrentUser()
-  await loadTests()
+  await loadDrafts()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -549,8 +483,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 基本スタイルは create.vue と同じ */
-.tests-page {
+.drafts-page {
   min-height: 100vh;
   background: #f5f5f5;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -558,12 +491,12 @@ onUnmounted(() => {
 
 /* ヘッダー */
 .header {
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
-  background: #ffffff;
-  border-bottom: 1px solid #e0e0e0;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -572,6 +505,7 @@ onUnmounted(() => {
 .header-left {
   display: flex;
   align-items: center;
+  gap: 24px;
 }
 
 .logo {
@@ -622,7 +556,6 @@ onUnmounted(() => {
   justify-content: center;
   cursor: pointer;
   color: #666;
-  position: relative;
   transition: background 0.2s;
 }
 
@@ -679,20 +612,10 @@ onUnmounted(() => {
   background: #f5f5f5;
 }
 
-.menu-item svg {
-  flex-shrink: 0;
-  color: #666;
-}
-
 .menu-link {
   text-decoration: none;
   color: #3b82f6;
   border-top: 1px solid #e0e0e0;
-}
-
-.menu-link:hover {
-  background: #f0f7ff;
-  color: #2563eb;
 }
 
 .avatar {
@@ -719,7 +642,6 @@ onUnmounted(() => {
   min-height: calc(100vh - 60px);
 }
 
-/* サイドバー */
 .sidebar {
   width: 240px;
   background: white;
@@ -799,33 +721,18 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.nav-item svg {
-  flex-shrink: 0;
-  color: #999;
-}
-
-.nav-item.active svg {
-  color: #9333ea;
-}
-
-/* メインコンテンツ */
 .content-area {
   flex: 1;
   padding: 40px;
   overflow-y: auto;
-  background: #f5f5f5;
 }
 
-.tests-content {
+.drafts-content {
   max-width: 1200px;
   margin: 0 auto;
 }
 
-/* ページヘッダー */
 .page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 32px;
 }
 
@@ -836,146 +743,91 @@ onUnmounted(() => {
   margin: 0;
 }
 
-.btn-create-test {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  background: #9333ea;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-create-test:hover {
-  background: #7e22ce;
-}
-
-/* 読み込み中・空の状態 */
-.loading-state, .empty-state {
+.loading-state,
+.empty-state {
   text-align: center;
-  padding: 80px 20px;
-  color: #999;
+  padding: 60px 20px;
+  color: #666;
 }
 
 .empty-state svg {
-  color: #ddd;
-  margin-bottom: 20px;
-}
-
-.empty-state p {
-  margin: 0;
-  font-size: 16px;
+  margin-bottom: 16px;
+  color: #ccc;
 }
 
 .empty-hint {
+  margin-top: 8px;
   font-size: 14px;
-  margin-top: 8px !important;
+  color: #999;
 }
 
-/* テストグリッド */
-.tests-grid {
+.drafts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
 }
 
-.test-card {
+.draft-card {
   background: white;
-  border-radius: 12px;
-  padding: 24px;
   border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.test-card:hover {
+.draft-card:hover {
   border-color: #9333ea;
   box-shadow: 0 4px 12px rgba(147, 51, 234, 0.1);
   transform: translateY(-2px);
 }
 
-.test-card-header {
+.draft-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
 
-.test-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.test-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.action-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: #f5f5f5;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #666;
-  transition: all 0.2s;
-}
-
-.action-btn:hover {
-  background: #e0e0e0;
-  color: #333;
-}
-
-.delete-btn:hover {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.test-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 8px 0;
-}
-
-.test-video {
-  font-size: 14px;
-  color: #666;
-  margin: 0 0 16px 0;
-}
-
-.test-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.test-questions {
-  font-size: 14px;
-  font-weight: 600;
+.draft-icon {
   color: #9333ea;
 }
 
-.test-date {
+.draft-delete-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #999;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.draft-delete-btn:hover {
+  background: #fee;
+  color: #dc2626;
+}
+
+.draft-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.draft-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.draft-date {
   font-size: 12px;
   color: #999;
+  margin: 0;
 }
 </style>
 

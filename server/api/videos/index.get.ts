@@ -49,6 +49,9 @@ export default defineEventHandler(async (event) => {
       .select('*')
       .order('created_at', { ascending: false })
 
+    // 下書きを除外（is_draftがtrueでないものを取得）
+    queryBuilder = queryBuilder.neq('is_draft', true)
+
     // 組織でフィルタリング
     if (organization && organizationUserIds.length > 0) {
       queryBuilder = queryBuilder.in('user_id', organizationUserIds)

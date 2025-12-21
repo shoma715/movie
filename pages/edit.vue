@@ -82,6 +82,12 @@ const videoTitle = ref<string>('')
 // 完成動画の生成中状態
 const isCompleting = ref(false)
 
+// 下書き保存関連
+const isSavingDraft = ref(false)
+const draftId = ref<number | null>(null)
+const currentUser = ref<{ id: string; user_metadata?: any } | null>(null)
+const isOrgAdmin = ref(false)
+
 // 現在選択中のカットを取得
 const activeCut = computed(() => {
   if (activeCutId.value === null) return null
@@ -407,6 +413,49 @@ const handleTrimmedTimeUpdate = (event: Event) => {
   }
 }
 
+// トリミング後の動画のロード完了時の処理
+const handleTrimmedVideoLoaded = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  console.log('[LoadDraft] Trimmed video loaded:', trimmedVideoUrl.value)
+  if (video.duration) {
+    trimmedDuration.value = video.duration
+  }
+  if (video.videoWidth && video.videoHeight) {
+    videoWidth.value = video.videoWidth
+    videoHeight.value = video.videoHeight
+  }
+}
+
+// トリミング後の動画のエラー処理
+const handleTrimmedVideoError = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  console.error('[LoadDraft] Trimmed video error:', {
+    error: video.error,
+    errorCode: video.error?.code,
+    errorMessage: video.error?.message,
+    src: trimmedVideoUrl.value
+  })
+  
+  if (video.error) {
+    let errorMessage = '動画の読み込みに失敗しました'
+    switch (video.error.code) {
+      case 1:
+        errorMessage = '動画の読み込みが中断されました'
+        break
+      case 2:
+        errorMessage = 'ネットワークエラー: 動画を読み込めませんでした'
+        break
+      case 3:
+        errorMessage = '動画の形式がサポートされていません'
+        break
+      case 4:
+        errorMessage = '動画のソースが見つかりません'
+        break
+    }
+    console.error('[LoadDraft] Video error details:', errorMessage)
+  }
+}
+
 // トリミング後動画のメタデータ読み込み時
 const handleVideoLoadedMetadata = (event: Event) => {
   const video = event.target as HTMLVideoElement
@@ -450,7 +499,7 @@ const activeTextOverlays = computed(() => {
 const activeImageOverlays = computed(() => {
   const t = trimmedVideoCurrentTime.value
   return imageItems.value.filter(item =>
-    item.file &&
+    (item.file || item.url) && // fileまたはurlのいずれかがあれば表示
     item.startTime >= 0 &&
     item.endTime > item.startTime &&
     t >= item.startTime &&
@@ -640,8 +689,14 @@ onMounted(async () => {
   // クライアントサイドでのみ実行
   if (import.meta.server) return
   
+  // ユーザー情報を取得
+  await loadCurrentUser()
+  
   // デフォルトカットを初期化
   initializeDefaultCut()
+  
+  // URLパラメータから下書きを読み込む
+  await loadDraftFromQuery()
   
   // 少し遅延させてから読み込みを開始（DOMが完全に読み込まれた後）
   await new Promise(resolve => setTimeout(resolve, 100))
@@ -1419,12 +1474,47 @@ const applyOverlays = async () => {
     const imageFiles: string[] = []
     for (let i = 0; i < imageItems.value.length; i++) {
       const item = imageItems.value[i]
-      if (item && item.file) {
-        const fileExt = item.file.name.split('.').pop() || 'png'
+      if (!item) continue
+      
+      let imageBlob: Blob | null = null
+      let fileExt = 'png'
+      
+      // Fileオブジェクトがある場合はそれを使用
+      if (item.file) {
+        imageBlob = item.file
+        fileExt = item.file.name.split('.').pop() || 'png'
+      } 
+      // URLがある場合はURLから画像を取得
+      else if (item.url) {
+        try {
+          const response = await fetch(item.url)
+          if (response.ok) {
+            imageBlob = await response.blob()
+            // URLから拡張子を推測
+            const urlPath = new URL(item.url).pathname
+            const extMatch = urlPath.match(/\.([^.]+)$/)
+            if (extMatch) {
+              fileExt = extMatch[1]
+            }
+          } else {
+            console.warn('[Overlay] Failed to fetch image from URL:', item.url)
+            continue
+          }
+        } catch (error) {
+          console.error('[Overlay] Error fetching image from URL:', item.url, error)
+          continue
+        }
+      } else {
+        // ファイルもURLもない場合はスキップ
+        continue
+      }
+      
+      if (imageBlob) {
         const imageFileName = `image${i}.${fileExt}`
-        await ffmpeg.value.writeFile(imageFileName, await fetchFile(item.file))
+        const imageFile = new File([imageBlob], `image${i}.${fileExt}`, { type: imageBlob.type })
+        await ffmpeg.value.writeFile(imageFileName, await fetchFile(imageFile))
         imageFiles.push(imageFileName)
-        console.log('[Overlay] Image written:', imageFileName)
+        console.log('[Overlay] Image written:', imageFileName, 'from', item.file ? 'file' : 'URL')
       }
     }
     
@@ -1466,7 +1556,8 @@ const applyOverlays = async () => {
     // 画像オーバーレイ情報を収集（サイズを動画の1/2に制限、位置を画面端に合わせる）
     for (let index = 0; index < imageItems.value.length; index++) {
       const item = imageItems.value[index]
-      if (!item || !item.file || item.startTime < 0 || item.endTime <= item.startTime) continue
+      // fileまたはurlのいずれかが必要
+      if (!item || (!item.file && !item.url) || item.startTime < 0 || item.endTime <= item.startTime) continue
       
       // 画像のサイズを計算（動画サイズの1/2を最大値として、アスペクト比を維持）
       // 実際の動画サイズを使用
@@ -2048,6 +2139,376 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
   }
 }
 
+// 画像をSupabase Storageにアップロード
+const uploadImageToSupabase = async (file: File): Promise<string | null> => {
+  if (!supabase) {
+    console.warn('[UploadImage] Supabase client not available')
+    return null
+  }
+
+  try {
+    const fileExt = file.name.split('.').pop() || 'jpg'
+    const fileName = `draft-images/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+    
+    const { error: uploadError } = await supabase.storage
+      .from('videos')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type
+      })
+
+    if (uploadError) {
+      console.error('[UploadImage] Upload error:', uploadError)
+      return null
+    }
+
+    // 公開URLを取得
+    const { data: urlData } = await supabase.storage
+      .from('videos')
+      .getPublicUrl(fileName)
+
+    return urlData.publicUrl
+  } catch (error) {
+    console.error('[UploadImage] Error uploading image:', error)
+    return null
+  }
+}
+
+// 動画をSupabase Storageにアップロード
+const uploadVideoToSupabaseForDraft = async (videoUrl: string): Promise<string | null> => {
+  if (!supabase) {
+    console.warn('[UploadVideoForDraft] Supabase client not available')
+    return null
+  }
+
+  // 既にSupabase URLの場合はそのまま返す
+  if (videoUrl && (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) && !videoUrl.startsWith('blob:')) {
+    return videoUrl
+  }
+
+  // Blob URLの場合はアップロード
+  if (videoUrl && videoUrl.startsWith('blob:')) {
+    try {
+      const response = await fetch(videoUrl)
+      const blob = await response.blob()
+      
+      const fileName = `draft-videos/${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+      
+      const { error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(fileName, blob, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: 'video/mp4'
+        })
+
+      if (uploadError) {
+        console.error('[UploadVideoForDraft] Upload error:', uploadError)
+        return null
+      }
+
+      // 公開URLを取得
+      const { data: urlData } = await supabase.storage
+        .from('videos')
+        .getPublicUrl(fileName)
+
+      return urlData.publicUrl
+    } catch (error) {
+      console.error('[UploadVideoForDraft] Error uploading video:', error)
+      return null
+    }
+  }
+
+  return null
+}
+
+// 下書き保存
+const saveDraft = async () => {
+  if (!currentUser.value) {
+    alert('ログインが必要です')
+    return
+  }
+
+  if (!videoTitle.value.trim()) {
+    alert('タイトルを入力してください')
+    return
+  }
+
+  try {
+    isSavingDraft.value = true
+
+    // 画像ファイルと動画をアップロードしてURLを取得
+    const processedCuts = await Promise.all(
+      cuts.value.map(async (cut) => {
+        // トリミング後の動画をアップロード
+        let trimmedVideoUrl = cut.trimmedVideoUrl
+        if (trimmedVideoUrl) {
+          if (trimmedVideoUrl.startsWith('blob:')) {
+            // Blob URLの場合はアップロードを試みる
+            const uploadedUrl = await uploadVideoToSupabaseForDraft(trimmedVideoUrl)
+            if (uploadedUrl) {
+              trimmedVideoUrl = uploadedUrl
+              console.log('[SaveDraft] Trimmed video uploaded successfully:', uploadedUrl)
+            } else {
+              // アップロードに失敗した場合はnullにする（Blob URLは保存しない）
+              console.warn('[SaveDraft] Failed to upload trimmed video, setting to null')
+              trimmedVideoUrl = null
+            }
+          }
+          // 既にSupabase URLの場合はそのまま使用
+        }
+
+        // 最終動画をアップロード
+        let finalVideoUrl = cut.finalVideoUrl
+        if (finalVideoUrl) {
+          if (finalVideoUrl.startsWith('blob:')) {
+            // Blob URLの場合はアップロードを試みる
+            const uploadedUrl = await uploadVideoToSupabaseForDraft(finalVideoUrl)
+            if (uploadedUrl) {
+              finalVideoUrl = uploadedUrl
+              console.log('[SaveDraft] Final video uploaded successfully:', uploadedUrl)
+            } else {
+              // アップロードに失敗した場合はnullにする（Blob URLは保存しない）
+              console.warn('[SaveDraft] Failed to upload final video, setting to null')
+              finalVideoUrl = null
+            }
+          }
+          // 既にSupabase URLの場合はそのまま使用
+        }
+
+        const processedImageItems = await Promise.all(
+          cut.imageItems.map(async (img) => {
+            // 既にSupabase URLの場合はそのまま使用
+            if (img.url && (img.url.startsWith('http://') || img.url.startsWith('https://')) && !img.url.startsWith('blob:')) {
+              return {
+                id: img.id,
+                url: img.url,
+                position: img.position,
+                startTime: img.startTime,
+                endTime: img.endTime
+              }
+            }
+            
+            // Fileオブジェクトがある場合はアップロード
+            if (img.file) {
+              const uploadedUrl = await uploadImageToSupabase(img.file)
+              if (uploadedUrl) {
+                return {
+                  id: img.id,
+                  url: uploadedUrl,
+                  position: img.position,
+                  startTime: img.startTime,
+                  endTime: img.endTime
+                }
+              }
+            }
+            
+            // アップロードに失敗した場合は既存のURLを使用（Blob URLの場合は警告）
+            if (img.url && img.url.startsWith('blob:')) {
+              console.warn('[SaveDraft] Image has blob URL, will not persist:', img.url)
+            }
+            
+            return {
+              id: img.id,
+              url: img.url || null,
+              position: img.position,
+              startTime: img.startTime,
+              endTime: img.endTime
+            }
+          })
+        )
+
+        return {
+          id: cut.id,
+          name: cut.name,
+          videoUrl: cut.videoUrl,
+          videoDuration: cut.videoDuration,
+          startTime: cut.startTime,
+          endTime: cut.endTime,
+          trimmedVideoUrl: trimmedVideoUrl,
+          finalVideoUrl: finalVideoUrl,
+          textItems: cut.textItems,
+          imageItems: processedImageItems,
+          isCollapsed: cut.isCollapsed
+        }
+      })
+    )
+
+    // 編集データをシリアライズ
+    const draftData = {
+      cuts: processedCuts,
+      videoTitle: videoTitle.value,
+      cutIdCounter,
+      textItemIdCounter,
+      imageItemIdCounter,
+      activeCutId: activeCutId.value
+    }
+
+    const response = await $fetch('/api/videos/draft', {
+      method: 'POST',
+      body: {
+        title: videoTitle.value,
+        draft_data: draftData,
+        video_id: draftId.value,
+        user_id: currentUser.value.id
+      }
+    })
+
+    draftId.value = response.id
+    alert('下書きを保存しました')
+  } catch (error: any) {
+    console.error('[SaveDraft] Error saving draft:', error)
+    alert('下書きの保存に失敗しました: ' + (error?.data?.message || error?.message || 'Unknown error'))
+  } finally {
+    isSavingDraft.value = false
+  }
+}
+
+// 下書きから読み込み
+const loadDraft = async (draft: any) => {
+  if (!draft.draft_data) {
+    alert('下書きデータが見つかりません')
+    return
+  }
+
+  try {
+    const data = draft.draft_data
+
+    // カウンターを復元
+    cutIdCounter = data.cutIdCounter || 0
+    textItemIdCounter = data.textItemIdCounter || 0
+    imageItemIdCounter = data.imageItemIdCounter || 0
+
+    // タイトルを復元
+    videoTitle.value = data.videoTitle || ''
+
+    // カットを復元
+    cuts.value = data.cuts.map((cutData: any) => ({
+      id: cutData.id,
+      name: cutData.name,
+      videoFile: null, // Fileオブジェクトは復元できない
+      videoUrl: cutData.videoUrl,
+      videoDuration: cutData.videoDuration,
+      startTime: cutData.startTime,
+      endTime: cutData.endTime,
+      trimmedVideoUrl: cutData.trimmedVideoUrl,
+      finalVideoUrl: cutData.finalVideoUrl,
+      textItems: cutData.textItems || [],
+      imageItems: (cutData.imageItems || []).map((img: any) => ({
+        id: img.id,
+        file: null, // Fileオブジェクトは復元できない
+        url: img.url, // Supabase URLが保存されている
+        position: img.position || 'top-right',
+        startTime: img.startTime || 0,
+        endTime: img.endTime || 0
+      })),
+      isCollapsed: cutData.isCollapsed || false
+    }))
+
+    // アクティブカットを復元
+    activeCutId.value = data.activeCutId || (cuts.value.length > 0 ? cuts.value[0].id : null)
+    draftId.value = draft.id
+
+    // アクティブカットのトリミング後の動画URLを復元
+    if (activeCutId.value !== null) {
+      const activeCut = cuts.value.find(c => c.id === activeCutId.value)
+      if (activeCut && activeCut.trimmedVideoUrl) {
+        // Blob URLの場合は警告を表示
+        if (activeCut.trimmedVideoUrl.startsWith('blob:')) {
+          console.warn('[LoadDraft] Trimmed video has blob URL, cannot be restored:', activeCut.trimmedVideoUrl)
+          alert('トリミング後の動画が保存されていません。再度トリミングしてください。')
+          // Blob URLは無効なのでnullにする
+          activeCut.trimmedVideoUrl = null
+          trimmedVideoUrl.value = null
+        } else {
+          // 動画URLを設定
+          trimmedVideoUrl.value = activeCut.trimmedVideoUrl
+          
+          // 動画要素を強制的に再読み込み
+          await nextTick()
+          await nextTick() // 2回nextTickで確実にDOMが更新されるのを待つ
+          if (trimmedVideoRef.value) {
+            // srcを一度クリアしてから再設定
+            trimmedVideoRef.value.src = ''
+            await nextTick()
+            trimmedVideoRef.value.src = activeCut.trimmedVideoUrl
+            trimmedVideoRef.value.load()
+          }
+        }
+      }
+    }
+
+    // 画像のサイズを更新（URLから画像を読み込んでサイズを取得）
+    await nextTick()
+    for (const cut of cuts.value) {
+      for (const imgItem of cut.imageItems) {
+        if (imgItem.url && !imgItem.file) {
+          // URLから画像を読み込んでサイズを取得
+          const img = new Image()
+          img.onload = () => {
+            if (imgItem.id) {
+              imageSizes.value.set(imgItem.id, {
+                width: img.naturalWidth || img.width || 200,
+                height: img.naturalHeight || img.height || 200
+              })
+            }
+          }
+          img.src = imgItem.url
+        }
+      }
+    }
+
+    alert('下書きを読み込みました')
+  } catch (error: any) {
+    console.error('[LoadDraft] Error loading draft:', error)
+    alert('下書きの読み込みに失敗しました: ' + (error?.message || 'Unknown error'))
+  }
+}
+
+// URLパラメータから下書きIDを取得して読み込む
+const loadDraftFromQuery = async () => {
+  const route = useRoute()
+  const draftIdParam = route.query.draft_id as string
+
+  if (draftIdParam && currentUser.value) {
+    try {
+      const { data: { user } } = await supabase!.auth.getUser()
+      if (!user) return
+
+      const drafts = await $fetch('/api/videos/drafts', {
+        query: { user_id: user.id }
+      })
+      const draft = (drafts as any[]).find(d => d.id === parseInt(draftIdParam))
+      if (draft) {
+        await loadDraft(draft)
+      }
+    } catch (error) {
+      console.error('Error loading draft from query:', error)
+    }
+  }
+}
+
+// ユーザー情報を取得
+const loadCurrentUser = async () => {
+  if (!supabase) return
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      currentUser.value = {
+        id: user.id,
+        user_metadata: user.user_metadata
+      }
+      
+      const userRole = user.user_metadata?.role || user.app_metadata?.role
+      isOrgAdmin.value = userRole === 'org_admin' || userRole === 'organization_admin'
+    }
+  } catch (error) {
+    console.error('Error loading user:', error)
+  }
+}
+
 // 完成ボタン：全てのカットを連結
 const completeVideo = async () => {
   if (cuts.value.length === 0) {
@@ -2421,6 +2882,15 @@ const completeVideo = async () => {
             </svg>
           </button>
           <button 
+            v-if="isOrgAdmin"
+            class="draft-save-btn" 
+            @click="saveDraft" 
+            :disabled="isSavingDraft || !videoTitle.trim()"
+            title="下書き保存"
+          >
+            {{ isSavingDraft ? '保存中...' : '下書き保存' }}
+          </button>
+          <button 
             class="complete-btn" 
             @click="completeVideo" 
             :disabled="isCompleting || cuts.length === 0"
@@ -2551,6 +3021,9 @@ const completeVideo = async () => {
               controls
               class="video-preview"
               @timeupdate="handleTrimmedTimeUpdate"
+              @loadedmetadata="handleTrimmedVideoLoaded"
+              @error="handleTrimmedVideoError"
+              preload="metadata"
             ></video>
             <div class="time-overlay bottom-left">
               {{ formatTime(trimmedVideoCurrentTime) }} / {{ formatTime(trimmedDuration) }}
@@ -3247,6 +3720,28 @@ const completeVideo = async () => {
   background: #f5f5f5;
   border-color: #9333ea;
   color: #9333ea;
+}
+
+.draft-save-btn {
+  padding: 8px 20px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-right: 8px;
+}
+
+.draft-save-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.draft-save-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 .complete-btn {
