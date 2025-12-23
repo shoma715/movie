@@ -7,3 +7,4 @@ ADD COLUMN IF NOT EXISTS draft_data JSONB;
 CREATE INDEX IF NOT EXISTS idx_videos_is_draft ON videos(is_draft);
 CREATE INDEX IF NOT EXISTS idx_videos_user_draft ON videos(user_id, is_draft) WHERE is_draft = TRUE;
 
+

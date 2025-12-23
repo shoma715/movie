@@ -1345,14 +1345,198 @@ const handleTextItemDragEnd = () => {
   dragOverTextItemId.value = null
 }
 
-// AI文字起こし（プレースホルダー）
+// AI文字起こしのローディング状態
+const isTranscribing = ref(false)
+
+// AI文字起こし
 const transcribeAudio = async () => {
-  if (!videoFile.value && !videoUrl.value) {
-    alert('動画をアップロードしてください')
+  // トリミング後の動画が必要
+  if (!trimmedVideoUrl.value) {
+    alert('トリミング後の動画が必要です。まず動画をトリミングしてください。')
     return
   }
-  // TODO: AI文字起こしAPIを実装
-  alert('AI文字起こし機能は今後実装予定です')
+
+  if (!activeCut.value) {
+    alert('アクティブなカットが見つかりません')
+    return
+  }
+
+  try {
+    isTranscribing.value = true
+    console.log('[Transcribe] Starting transcription for:', trimmedVideoUrl.value)
+
+    // 動画をBlobに変換
+    let videoBlob: Blob
+    try {
+      const response = await fetch(trimmedVideoUrl.value)
+      if (!response.ok) {
+        throw new Error(`動画の取得に失敗しました: ${response.statusText}`)
+      }
+      videoBlob = await response.blob()
+      console.log('[Transcribe] Video blob size:', videoBlob.size)
+    } catch (error: any) {
+      console.error('[Transcribe] Error fetching video:', error)
+      alert('動画の取得に失敗しました: ' + error.message)
+      return
+    }
+
+    // FormDataを作成して動画ファイルを送信
+    const formData = new FormData()
+    const videoFile = new File([videoBlob], 'video.mp4', { type: 'video/mp4' })
+    formData.append('video', videoFile)
+
+    // サーバーに文字起こしリクエストを送信
+    const result = await $fetch('/api/videos/transcribe', {
+      method: 'POST',
+      body: formData
+    })
+
+    console.log('[Transcribe] Transcription result:', result)
+
+    if (!result.text || result.text.trim() === '') {
+      alert('文字起こし結果が空でした')
+      return
+    }
+
+    // 文字起こし結果を処理
+    const text = result.text.trim()
+    const segments = result.segments || []
+    
+    // 動画の長さを取得
+    const videoDuration = trimmedDuration.value || (activeCut.value?.endTime - activeCut.value?.startTime) || 10
+
+    // テキストを「、」「。」で区切る
+    const textParts: string[] = []
+    const parts = text.split(/([、。])/).filter(s => s.trim() !== '')
+    let currentSegment = ''
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      currentSegment += part
+      
+      // 「、」「。」で終わる場合はセグメントを確定
+      if (part === '、' || part === '。') {
+        if (currentSegment.trim()) {
+          textParts.push(currentSegment.trim())
+          currentSegment = ''
+        }
+      }
+    }
+    
+    // 残りのテキストがある場合は追加
+    if (currentSegment.trim()) {
+      textParts.push(currentSegment.trim())
+    }
+
+    // セグメントがない場合は、元のテキストをそのまま使用
+    if (textParts.length === 0) {
+      textParts.push(text)
+    }
+
+    // Whisper APIのセグメント情報を使用して時間を割り当て
+    if (segments.length > 0) {
+      // セグメント情報を使用して、各テキストパートに時間を割り当て
+      let segmentIndex = 0
+      let textIndex = 0
+      let accumulatedText = ''
+      
+      const textItems: Array<{ text: string; startTime: number; endTime: number }> = []
+      
+      for (let i = 0; i < segments.length && textIndex < textParts.length; i++) {
+        const segment = segments[i]
+        const segmentText = segment.text || ''
+        accumulatedText += segmentText
+        
+        // 現在のテキストパートが含まれているかチェック
+        if (accumulatedText.includes(textParts[textIndex])) {
+          // テキストパートの開始時間と終了時間を設定
+          const startTime = segment.start || 0
+          let endTime = segment.end || startTime
+          
+          // 次のセグメントまで探す
+          for (let j = i + 1; j < segments.length; j++) {
+            const nextSegment = segments[j]
+            accumulatedText += nextSegment.text || ''
+            if (accumulatedText.includes(textParts[textIndex])) {
+              endTime = nextSegment.end || endTime
+            } else {
+              break
+            }
+          }
+          
+          textItems.push({
+            text: textParts[textIndex],
+            startTime: Math.max(0, startTime),
+            endTime: Math.min(videoDuration, endTime)
+          })
+          
+          textIndex++
+          accumulatedText = ''
+        }
+      }
+      
+      // 残りのテキストパートを均等に時間を割り当て
+      if (textIndex < textParts.length) {
+        const remainingDuration = videoDuration - (textItems.length > 0 ? textItems[textItems.length - 1].endTime : 0)
+        const remainingParts = textParts.slice(textIndex)
+        const partDuration = remainingDuration / remainingParts.length
+        const startTime = textItems.length > 0 ? textItems[textItems.length - 1].endTime : 0
+        
+        remainingParts.forEach((partText, index) => {
+          textItems.push({
+            text: partText,
+            startTime: startTime + index * partDuration,
+            endTime: startTime + (index + 1) * partDuration
+          })
+        })
+      }
+      
+      // テキストアイテムを追加
+      textItems.forEach((item) => {
+        const newItem = {
+          id: textItemIdCounter++,
+          text: item.text,
+          startTime: Math.max(0, item.startTime),
+          endTime: Math.min(videoDuration, item.endTime)
+        }
+        
+        activeCut.value.textItems.push(newItem)
+      })
+      
+      alert(`文字起こしが完了しました。${textItems.length}個のテキストアイテムを追加しました。`)
+    } else {
+      // セグメント情報がない場合は、均等に時間を割り当て
+      const segmentDuration = videoDuration / textParts.length
+      
+      textParts.forEach((segmentText, index) => {
+        const startTime = index * segmentDuration
+        const endTime = (index + 1) * segmentDuration
+        
+        const newItem = {
+          id: textItemIdCounter++,
+          text: segmentText,
+          startTime: Math.max(0, startTime),
+          endTime: Math.min(videoDuration, endTime)
+        }
+        
+        activeCut.value.textItems.push(newItem)
+      })
+
+      alert(`文字起こしが完了しました。${textParts.length}個のテキストアイテムを追加しました。`)
+    }
+  } catch (error: any) {
+    console.error('[Transcribe] Error transcribing audio:', error)
+    const errorMessage = error?.data?.message || error?.message || '不明なエラー'
+    
+    // 401エラーの場合は特別なメッセージを表示
+    if (error?.statusCode === 401 || errorMessage.includes('401')) {
+      alert('OpenAI APIの認証に失敗しました。\n\n以下の点を確認してください：\n1. 環境変数OPENAI_API_KEYが設定されているか\n2. APIキーが正しいか（sk-で始まる必要があります）\n3. 開発サーバーを再起動したか\n\nサーバー側のコンソールログも確認してください。')
+    } else {
+      alert('文字起こしに失敗しました: ' + errorMessage)
+    }
+  } finally {
+    isTranscribing.value = false
+  }
 }
 
 // 画像アイテムの追加
@@ -2652,8 +2836,12 @@ const completeVideo = async () => {
         <button class="close-btn" @click="togglePanel('text')">×</button>
       </div>
       <div class="panel-content">
-        <button class="ai-transcribe-btn" @click="transcribeAudio">
-          AI文字起こし
+        <button 
+          class="ai-transcribe-btn" 
+          @click="transcribeAudio"
+          :disabled="isTranscribing || !trimmedVideoUrl"
+        >
+          {{ isTranscribing ? '文字起こし中...' : 'AI文字起こし' }}
         </button>
         
         <!-- テキストサイズ選択 -->

@@ -8,6 +8,9 @@ export default defineNuxtConfig({
     supabase: {
       serviceKey: process.env.SUPABASE_SERVICE_KEY || ''
     },
+    openai: {
+      apiKey: process.env.OPENAI_API_KEY || ''
+    },
     public: {
       supabase: {
         url: process.env.SUPABASE_URL || '',
