@@ -277,6 +277,24 @@
               class="draft-card"
               @click="openDraft(draft)"
             >
+              <!-- サムネイル -->
+              <div class="draft-thumbnail" v-if="getDraftVideoUrl(draft)">
+                <video
+                  :src="getDraftVideoUrl(draft)"
+                  preload="metadata"
+                  muted
+                  playsinline
+                  class="draft-video-thumb"
+                  @loadedmetadata="onThumbnailLoaded"
+                  @loadeddata="onThumbnailLoaded"
+                ></video>
+              </div>
+              <div v-else class="draft-thumbnail-placeholder">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="play-icon">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </div>
+              
               <div class="draft-card-header">
                 <div class="draft-icon">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -446,6 +464,43 @@ const formatDate = (dateString: string) => {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+// 下書きから動画URLを取得
+const getDraftVideoUrl = (draft: any): string | null => {
+  if (!draft.draft_data) return null
+  
+  try {
+    const draftData = typeof draft.draft_data === 'string' 
+      ? JSON.parse(draft.draft_data) 
+      : draft.draft_data
+    
+    if (!draftData.cuts || draftData.cuts.length === 0) return null
+    
+    // 最初のカットから動画URLを取得
+    const firstCut = draftData.cuts[0]
+    
+    // finalVideoUrl > trimmedVideoUrl > videoUrl の優先順位で取得
+    if (firstCut.finalVideoUrl) return firstCut.finalVideoUrl
+    if (firstCut.trimmedVideoUrl) return firstCut.trimmedVideoUrl
+    if (firstCut.videoUrl) return firstCut.videoUrl
+    
+    return null
+  } catch (error) {
+    console.error('Error parsing draft data:', error)
+    return null
+  }
+}
+
+// サムネイルのメタデータが読み込まれた時
+const onThumbnailLoaded = (event: Event) => {
+  const video = event.target as HTMLVideoElement
+  if (video && video.readyState >= 2) {
+    // 動画の最初のフレーム（0秒）を表示
+    video.currentTime = 0.1
+    // 動画を一時停止してサムネイルとして表示
+    video.pause()
+  }
 }
 
 // 下書きを開く
@@ -780,6 +835,38 @@ onUnmounted(() => {
   border-color: #9333ea;
   box-shadow: 0 4px 12px rgba(147, 51, 234, 0.1);
   transform: translateY(-2px);
+}
+
+.draft-thumbnail {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  position: relative;
+}
+
+.draft-video-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.draft-thumbnail-placeholder {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #f0f0f0;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-icon {
+  color: #999;
 }
 
 .draft-card-header {
