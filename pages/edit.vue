@@ -1365,33 +1365,161 @@ const transcribeAudio = async () => {
     isTranscribing.value = true
     console.log('[Transcribe] Starting transcription for:', trimmedVideoUrl.value)
 
-    // 動画をBlobに変換
-    let videoBlob: Blob
+    // FFmpegを使用して動画から音声を抽出
+    if (!ffmpeg.value || !isFFmpegLoaded.value) {
+      alert('FFmpegが読み込まれていません。しばらく待ってから再度お試しください。')
+      return
+    }
+
+    let audioBlob: Blob
     try {
+      console.log('[Transcribe] Extracting audio from video using FFmpeg...')
+      
+      // トリミング済み動画を取得
       const response = await fetch(trimmedVideoUrl.value)
       if (!response.ok) {
         throw new Error(`動画の取得に失敗しました: ${response.statusText}`)
       }
-      videoBlob = await response.blob()
-      console.log('[Transcribe] Video blob size:', videoBlob.size)
+      const videoBlob = await response.blob()
+      console.log('[Transcribe] Video blob size:', videoBlob.size, 'bytes', `(${(videoBlob.size / 1024 / 1024).toFixed(2)}MB)`)
+      
+      // 入力ファイル名を動画の拡張子に合わせる
+      const inputFileName = `transcribe_input_${activeCut.value?.id || 0}.mp4`
+      const outputFileName = `transcribe_audio_${activeCut.value?.id || 0}.mp3`
+      
+      // 入力ファイルをFFmpegに書き込む
+      console.log('[Transcribe] Writing input file to FFmpeg:', inputFileName)
+      await ffmpeg.value.writeFile(inputFileName, await fetchFile(videoBlob))
+      console.log('[Transcribe] Input file written')
+      
+      // 音声を抽出（mp3形式で）
+      console.log('[Transcribe] Extracting audio as MP3...')
+      try {
+        await ffmpeg.value.exec([
+          '-i', inputFileName,
+          '-vn', // ビデオストリームを無効化
+          '-acodec', 'libmp3lame', // MP3エンコーダー
+          '-ab', '192k', // ビットレート（192kbps）
+          '-ar', '44100', // サンプリングレート
+          '-ac', '2', // ステレオ
+          '-y', // 上書き
+          outputFileName
+        ])
+        console.log('[Transcribe] Audio extraction completed (MP3)')
+        
+        // 出力ファイルを読み込む
+        const audioData = await ffmpeg.value.readFile(outputFileName)
+        audioBlob = new Blob([audioData], { type: 'audio/mpeg' })
+        console.log('[Transcribe] Audio blob created (MP3):', {
+          size: audioBlob.size,
+          sizeInMB: (audioBlob.size / 1024 / 1024).toFixed(2),
+          type: audioBlob.type
+        })
+      } catch (mp3Error: any) {
+        console.warn('[Transcribe] MP3 encoding failed, falling back to WAV:', mp3Error)
+        // MP3エンコーディングが失敗した場合、WAV形式にフォールバック
+        const wavOutputFileName = `transcribe_audio_${activeCut.value?.id || 0}.wav`
+        await ffmpeg.value.exec([
+          '-i', inputFileName,
+          '-vn', // ビデオストリームを無効化
+          '-acodec', 'pcm_s16le', // PCM 16-bit little-endian（WAV形式）
+          '-ar', '44100', // サンプリングレート
+          '-ac', '2', // ステレオ
+          '-y', // 上書き
+          wavOutputFileName
+        ])
+        console.log('[Transcribe] Audio extraction completed (WAV fallback)')
+        
+        // 出力ファイルを読み込む
+        const audioData = await ffmpeg.value.readFile(wavOutputFileName)
+        audioBlob = new Blob([audioData], { type: 'audio/wav' })
+        console.log('[Transcribe] Audio blob created (WAV fallback):', {
+          size: audioBlob.size,
+          sizeInMB: (audioBlob.size / 1024 / 1024).toFixed(2),
+          type: audioBlob.type
+        })
+        
+        // 一時ファイルを削除
+        try {
+          await ffmpeg.value.deleteFile(wavOutputFileName)
+        } catch (cleanupError) {
+          console.warn('[Transcribe] Failed to cleanup WAV temp file:', cleanupError)
+        }
+      }
+      
+      // 一時ファイルを削除
+      try {
+        await ffmpeg.value.deleteFile(inputFileName)
+        if (audioBlob.type === 'audio/mpeg') {
+          await ffmpeg.value.deleteFile(outputFileName)
+        }
+      } catch (cleanupError) {
+        console.warn('[Transcribe] Failed to cleanup temp files:', cleanupError)
+      }
+      
+      // ファイルサイズチェック（Whisper APIの制限は25MB）
+      const maxFileSize = 25 * 1024 * 1024 // 25MB
+      if (audioBlob.size > maxFileSize) {
+        const sizeInMB = (audioBlob.size / 1024 / 1024).toFixed(2)
+        alert(`ファイルサイズが大きすぎます。\n\nWhisper APIの制限は25MBです。\n現在のファイルサイズ: ${sizeInMB}MB\n\n動画を短くトリミングするか、音声のみを抽出してください。`)
+        return
+      }
     } catch (error: any) {
-      console.error('[Transcribe] Error fetching video:', error)
-      alert('動画の取得に失敗しました: ' + error.message)
+      console.error('[Transcribe] Error extracting audio with FFmpeg:', error)
+      alert('音声の抽出に失敗しました: ' + error.message)
       return
     }
 
-    // FormDataを作成して動画ファイルを送信
+    // FormDataを作成して音声ファイルを送信
     const formData = new FormData()
-    const videoFile = new File([videoBlob], 'video.mp4', { type: 'video/mp4' })
-    formData.append('video', videoFile)
+    const isMP3 = audioBlob.type === 'audio/mpeg'
+    const audioFileName = isMP3 ? 'audio.mp3' : 'audio.wav'
+    const audioFile = new File([audioBlob], audioFileName, { type: audioBlob.type })
+    formData.append('video', audioFile)
+
+    // リクエスト情報をログに出力
+    console.log('[Transcribe] ===== フロントエンド リクエスト情報 =====')
+    console.log('[Transcribe] URL: /api/videos/transcribe')
+    console.log('[Transcribe] Method: POST')
+    console.log('[Transcribe] File Info:', {
+      name: audioFile.name,
+      size: audioFile.size,
+      sizeInMB: (audioFile.size / 1024 / 1024).toFixed(2),
+      type: audioFile.type
+    })
+    console.log('[Transcribe] FormData keys:', Array.from(formData.keys()))
+    console.log('[Transcribe] =========================================')
 
     // サーバーに文字起こしリクエストを送信
-    const result = await $fetch('/api/videos/transcribe', {
-      method: 'POST',
-      body: formData
-    })
+    let result: any
+    try {
+      result = await $fetch('/api/videos/transcribe', {
+        method: 'POST',
+        body: formData
+      })
 
-    console.log('[Transcribe] Transcription result:', result)
+      // レスポンス情報をログに出力
+      console.log('[Transcribe] ===== フロントエンド レスポンス情報 =====')
+      console.log('[Transcribe] Response (Full):', JSON.stringify(result, null, 2))
+      console.log('[Transcribe] Text:', result.text || '(empty)')
+      console.log('[Transcribe] Text Length:', result.text?.length || 0)
+      console.log('[Transcribe] Segments Count:', result.segments?.length || 0)
+      if (result.segments && result.segments.length > 0) {
+        console.log('[Transcribe] First Segment:', JSON.stringify(result.segments[0], null, 2))
+        if (result.segments.length > 1) {
+          console.log('[Transcribe] Last Segment:', JSON.stringify(result.segments[result.segments.length - 1], null, 2))
+        }
+      }
+      console.log('[Transcribe] =========================================')
+    } catch (fetchError: any) {
+      console.error('[Transcribe] ===== フロントエンド エラー情報 =====')
+      console.error('[Transcribe] Error:', fetchError)
+      console.error('[Transcribe] Error Status Code:', fetchError?.statusCode || fetchError?.status)
+      console.error('[Transcribe] Error Message:', fetchError?.data?.message || fetchError?.message)
+      console.error('[Transcribe] Error Data (Full):', JSON.stringify(fetchError?.data || fetchError, null, 2))
+      console.error('[Transcribe] ======================================')
+      throw fetchError
+    }
 
     if (!result.text || result.text.trim() === '') {
       alert('文字起こし結果が空でした')
@@ -1405,134 +1533,164 @@ const transcribeAudio = async () => {
     // 動画の長さを取得
     const videoDuration = trimmedDuration.value || (activeCut.value?.endTime - activeCut.value?.startTime) || 10
 
-    // テキストを「、」「。」で区切る
-    const textParts: string[] = []
-    const parts = text.split(/([、。])/).filter(s => s.trim() !== '')
-    let currentSegment = ''
-    
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      currentSegment += part
+    // 句読点で分割する関数
+    const splitByPunctuation = (text: string): string[] => {
+      // 日本語の句読点（、。）で分割し、句読点を保持する
+      const parts: string[] = []
+      const regex = /[^、。]+[、。]?/g
+      let match
       
-      // 「、」「。」で終わる場合はセグメントを確定
-      if (part === '、' || part === '。') {
-        if (currentSegment.trim()) {
-          textParts.push(currentSegment.trim())
-          currentSegment = ''
+      while ((match = regex.exec(text)) !== null) {
+        const part = match[0].trim()
+        if (part) {
+          parts.push(part)
         }
       }
-    }
-    
-    // 残りのテキストがある場合は追加
-    if (currentSegment.trim()) {
-      textParts.push(currentSegment.trim())
+      
+      return parts.filter(p => p.length > 0)
     }
 
-    // セグメントがない場合は、元のテキストをそのまま使用
-    if (textParts.length === 0) {
-      textParts.push(text)
-    }
-
-    // Whisper APIのセグメント情報を使用して時間を割り当て
+    // Whisper APIのセグメント情報を句読点で分割して処理
     if (segments.length > 0) {
-      // セグメント情報を使用して、各テキストパートに時間を割り当て
-      let segmentIndex = 0
-      let textIndex = 0
-      let accumulatedText = ''
+      console.log('[Transcribe] Processing segments:', segments.length)
+      console.log('[Transcribe] All segments details:', JSON.stringify(segments, null, 2))
       
-      const textItems: Array<{ text: string; startTime: number; endTime: number }> = []
+      let totalChunks = 0
       
-      for (let i = 0; i < segments.length && textIndex < textParts.length; i++) {
-        const segment = segments[i]
-        const segmentText = segment.text || ''
-        accumulatedText += segmentText
+      // 各セグメントを句読点で分割して処理
+      segments.forEach((segment: any, segmentIndex: number) => {
+        const segmentText = (segment.text || '').trim()
+        if (!segmentText) {
+          console.warn(`[Transcribe] Skipping empty segment at index ${segmentIndex}`)
+          return // 空のセグメントはスキップ
+        }
         
-        // 現在のテキストパートが含まれているかチェック
-        if (accumulatedText.includes(textParts[textIndex])) {
-          // テキストパートの開始時間と終了時間を設定
-          const startTime = segment.start || 0
-          let endTime = segment.end || startTime
+        // Whisper APIから返ってくる時間を取得（明示的に浮動小数点数として扱う）
+        // JSONパース時に整数に変換されないように、明示的に浮動小数点数として扱う
+        const segStartRaw = segment.start
+        const segEndRaw = segment.end
+        const segStart = segStartRaw !== undefined && segStartRaw !== null ? Number(segStartRaw) : 0
+        const segEnd = segEndRaw !== undefined && segEndRaw !== null ? Number(segEndRaw) : segStart
+        const segDuration = segEnd - segStart
+        
+        console.log(`[Transcribe] Segment ${segmentIndex + 1} raw times:`, {
+          rawStart: segStartRaw,
+          rawEnd: segEndRaw,
+          rawStartType: typeof segStartRaw,
+          rawEndType: typeof segEndRaw,
+          parsedStart: segStart,
+          parsedEnd: segEnd,
+          parsedStartType: typeof segStart,
+          parsedEndType: typeof segEnd,
+          segDuration: segDuration
+        })
+        
+        // 句読点で分割
+        const chunks = splitByPunctuation(segmentText)
+        
+        if (chunks.length === 0) {
+          console.warn(`[Transcribe] No chunks found for segment ${segmentIndex + 1}`)
+          return
+        }
+        
+        // 各チャンクの文字数を計算
+        const totalChars = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+        
+        if (totalChars === 0) {
+          console.warn(`[Transcribe] Total chars is 0 for segment ${segmentIndex + 1}`)
+          return
+        }
+        
+        // 各チャンクに時間を比例配分（Pythonコードと同じロジック）
+        // 浮動小数点数として明示的に扱う
+        let currentTime = parseFloat(segStart.toString())
+        
+        chunks.forEach((chunk: string, chunkIndex: number) => {
+          // 文字数の比率で時間を配分（Pythonコードと同じ計算）
+          // 浮動小数点数として計算
+          const ratio = totalChars > 0 ? parseFloat((chunk.length / totalChars).toFixed(10)) : 0
+          const chunkDuration = parseFloat((segDuration * ratio).toFixed(10))
+          const chunkStart = parseFloat(currentTime.toFixed(10))
+          const chunkEnd = parseFloat((currentTime + chunkDuration).toFixed(10))
           
-          // 次のセグメントまで探す
-          for (let j = i + 1; j < segments.length; j++) {
-            const nextSegment = segments[j]
-            accumulatedText += nextSegment.text || ''
-            if (accumulatedText.includes(textParts[textIndex])) {
-              endTime = nextSegment.end || endTime
-            } else {
-              break
-            }
+          // 時間の精度を保持（小数点以下も含む）
+          const preciseStartTime = Math.max(0, chunkStart)
+          const preciseEndTime = Math.min(videoDuration, chunkEnd)
+          
+          console.log(`[Transcribe] Adding chunk ${chunkIndex + 1}/${chunks.length} from segment ${segmentIndex + 1}:`, {
+            text: chunk,
+            rawStart: chunkStart,
+            rawEnd: chunkEnd,
+            startTime: preciseStartTime.toFixed(2),
+            endTime: preciseEndTime.toFixed(2),
+            duration: (preciseEndTime - preciseStartTime).toFixed(2),
+            charCount: chunk.length,
+            ratio: ratio.toFixed(10),
+            segStart: segStart,
+            segEnd: segEnd,
+            segDuration: segDuration
+          })
+          
+          // 小数点第2位まで保持（Pythonコードの.2fと同じ）
+          // Pythonコードでは .2f を使用しているので、同じように小数点第2位まで保持
+          // 浮動小数点数として明示的に扱う
+          const startTimeValue = parseFloat(preciseStartTime.toFixed(2))
+          const endTimeValue = parseFloat(preciseEndTime.toFixed(2))
+          
+          // 次のチャンクの開始時間を更新（浮動小数点数として）
+          currentTime = parseFloat(chunkEnd.toFixed(10))
+          
+          const newItem = {
+            id: textItemIdCounter++,
+            text: chunk,
+            startTime: startTimeValue, // 小数点第2位まで保持（浮動小数点数）
+            endTime: endTimeValue // 小数点第2位まで保持（浮動小数点数）
           }
           
-          textItems.push({
-            text: textParts[textIndex],
-            startTime: Math.max(0, startTime),
-            endTime: Math.min(videoDuration, endTime)
+          console.log('[Transcribe] Created text item with times:', {
+            text: chunk,
+            startTime: startTimeValue,
+            endTime: endTimeValue,
+            startTimeFormatted: startTimeValue.toFixed(2),
+            endTimeFormatted: endTimeValue.toFixed(2),
+            startTimeType: typeof startTimeValue,
+            endTimeType: typeof endTimeValue,
+            startTimeIsInteger: Number.isInteger(startTimeValue),
+            endTimeIsInteger: Number.isInteger(endTimeValue)
           })
           
-          textIndex++
-          accumulatedText = ''
-        }
-      }
-      
-      // 残りのテキストパートを均等に時間を割り当て
-      if (textIndex < textParts.length) {
-        const remainingDuration = videoDuration - (textItems.length > 0 ? textItems[textItems.length - 1].endTime : 0)
-        const remainingParts = textParts.slice(textIndex)
-        const partDuration = remainingDuration / remainingParts.length
-        const startTime = textItems.length > 0 ? textItems[textItems.length - 1].endTime : 0
-        
-        remainingParts.forEach((partText, index) => {
-          textItems.push({
-            text: partText,
-            startTime: startTime + index * partDuration,
-            endTime: startTime + (index + 1) * partDuration
-          })
+          activeCut.value.textItems.push(newItem)
+          totalChunks++
         })
+      })
+      
+      console.log(`[Transcribe] Total text items added: ${totalChunks}`)
+      alert(`文字起こしが完了しました。${totalChunks}個のテキストアイテムを追加しました。`)
+    } else {
+      // セグメント情報がない場合は、全体のテキストを1つのアイテムとして追加
+      // 動画全体の長さを使用
+      const newItem = {
+        id: textItemIdCounter++,
+        text: text,
+        startTime: 0,
+        endTime: videoDuration
       }
       
-      // テキストアイテムを追加
-      textItems.forEach((item) => {
-        const newItem = {
-          id: textItemIdCounter++,
-          text: item.text,
-          startTime: Math.max(0, item.startTime),
-          endTime: Math.min(videoDuration, item.endTime)
-        }
-        
-        activeCut.value.textItems.push(newItem)
-      })
-      
-      alert(`文字起こしが完了しました。${textItems.length}個のテキストアイテムを追加しました。`)
-    } else {
-      // セグメント情報がない場合は、均等に時間を割り当て
-      const segmentDuration = videoDuration / textParts.length
-      
-      textParts.forEach((segmentText, index) => {
-        const startTime = index * segmentDuration
-        const endTime = (index + 1) * segmentDuration
-        
-        const newItem = {
-          id: textItemIdCounter++,
-          text: segmentText,
-          startTime: Math.max(0, startTime),
-          endTime: Math.min(videoDuration, endTime)
-        }
-        
-        activeCut.value.textItems.push(newItem)
-      })
-
-      alert(`文字起こしが完了しました。${textParts.length}個のテキストアイテムを追加しました。`)
+      activeCut.value.textItems.push(newItem)
+      alert(`文字起こしが完了しました。1個のテキストアイテムを追加しました。`)
     }
   } catch (error: any) {
     console.error('[Transcribe] Error transcribing audio:', error)
     const errorMessage = error?.data?.message || error?.message || '不明なエラー'
+    const statusCode = error?.statusCode || error?.status || null
     
-    // 401エラーの場合は特別なメッセージを表示
-    if (error?.statusCode === 401 || errorMessage.includes('401')) {
+    // エラータイプに応じたメッセージを表示
+    if (statusCode === 401 || errorMessage.includes('401') || errorMessage.includes('認証')) {
       alert('OpenAI APIの認証に失敗しました。\n\n以下の点を確認してください：\n1. 環境変数OPENAI_API_KEYが設定されているか\n2. APIキーが正しいか（sk-で始まる必要があります）\n3. 開発サーバーを再起動したか\n\nサーバー側のコンソールログも確認してください。')
+    } else if (statusCode === 400 || errorMessage.includes('ファイル形式') || errorMessage.includes('ファイルサイズ')) {
+      alert('文字起こしに失敗しました：\n\n' + errorMessage + '\n\n考えられる解決策：\n- 動画を短くトリミングする\n- ファイルサイズを25MB以下にする\n- 動画ファイルが破損していないか確認する')
     } else {
-      alert('文字起こしに失敗しました: ' + errorMessage)
+      alert('文字起こしに失敗しました：\n\n' + errorMessage + '\n\n詳細はブラウザのコンソールを確認してください。')
     }
   } finally {
     isTranscribing.value = false
@@ -2891,9 +3049,11 @@ const completeVideo = async () => {
             <div class="time-input-group">
               <label>開始</label>
               <input 
-                v-model.number="item.startTime" 
+                :value="typeof item.startTime === 'number' ? item.startTime : parseFloat(item.startTime) || 0"
+                @input="item.startTime = parseFloat(($event.target as HTMLInputElement).value) || 0"
+                @blur="item.startTime = parseFloat((item.startTime || 0).toFixed(2))"
                 type="number" 
-                step="0.1" 
+                step="0.01" 
                 min="0"
                 :max="videoDuration"
               />
@@ -2902,9 +3062,11 @@ const completeVideo = async () => {
             <div class="time-input-group">
               <label>終了</label>
               <input 
-                v-model.number="item.endTime" 
+                :value="typeof item.endTime === 'number' ? item.endTime : parseFloat(item.endTime) || 0"
+                @input="item.endTime = parseFloat(($event.target as HTMLInputElement).value) || 0"
+                @blur="item.endTime = parseFloat((item.endTime || 0).toFixed(2))"
                 type="number" 
-                step="0.1" 
+                step="0.01" 
                 min="0"
                 :max="videoDuration"
               />

@@ -281,3 +281,6 @@ COMMENT ON COLUMN public.test_answers.choice_id IS '選択肢ID';
 
 
 
+
+
+
