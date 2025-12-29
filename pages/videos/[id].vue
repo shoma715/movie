@@ -767,7 +767,8 @@ const loadCurrentUser = async () => {
 }
 
 const navigateToEdit = () => {
-  router.push('/edit')
+  if (!video.value) return
+  router.push(`/edit?video_id=${video.value.id}`)
 }
 
 // 動画を削除
@@ -1196,12 +1197,17 @@ onUnmounted(() => {
   overflow: hidden;
   margin-bottom: 16px;
   position: relative;
+  /* 16:9 の枠に収める（縦長動画でも伸びすぎないようにする） */
+  aspect-ratio: 16 / 9;
+  max-height: 70vh;
 }
 
 .video-player {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
+  /* 縦動画・横動画どちらも枠内に収まるようにする */
+  object-fit: contain;
 }
 
 .related-test-box {

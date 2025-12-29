@@ -2637,29 +2637,168 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
       console.warn('[Save] Failed to generate thumbnail:', thumbError)
     }
 
-    // データベースに動画メタデータを保存（未分類として）
-    console.log('[Save] Saving video metadata to database')
-    const response = await $fetch('/api/videos', {
-      method: 'POST',
-      body: {
-        title: videoTitle.value || '無題の動画',
-        video_url: videoUrl,
-        thumbnail_url: thumbnailUrl,
-        category_id: null, // 未分類
-        user_id: user.id
-      }
-    }).catch((error: any) => {
-      console.error('[Save] API error details:', {
-        message: error?.data?.message || error?.message,
-        statusCode: error?.statusCode,
-        data: error?.data,
-        fullError: error
-      })
-      throw error
-    })
+    // 編集データをシリアライズ（下書き保存と同じ処理）
+    const processedCuts = await Promise.all(
+      cuts.value.map(async (cut) => {
+        // トリミング後の動画をアップロード
+        let trimmedVideoUrl = cut.trimmedVideoUrl
+        if (trimmedVideoUrl) {
+          if (trimmedVideoUrl.startsWith('blob:')) {
+            const uploadedUrl = await uploadVideoToSupabaseForDraft(trimmedVideoUrl)
+            if (uploadedUrl) {
+              trimmedVideoUrl = uploadedUrl
+            } else {
+              trimmedVideoUrl = null
+            }
+          }
+        }
 
-    console.log('[Save] Video saved successfully:', response)
-    alert('動画をマニュアルに保存しました。')
+        // 最終動画をアップロード
+        let finalVideoUrl = cut.finalVideoUrl
+        if (finalVideoUrl) {
+          if (finalVideoUrl.startsWith('blob:')) {
+            const uploadedUrl = await uploadVideoToSupabaseForDraft(finalVideoUrl)
+            if (uploadedUrl) {
+              finalVideoUrl = uploadedUrl
+            } else {
+              finalVideoUrl = null
+            }
+          }
+        }
+
+        const processedImageItems = await Promise.all(
+          cut.imageItems.map(async (img) => {
+            if (img.url && (img.url.startsWith('http://') || img.url.startsWith('https://')) && !img.url.startsWith('blob:')) {
+              return {
+                id: img.id,
+                url: img.url,
+                position: img.position,
+                startTime: img.startTime,
+                endTime: img.endTime
+              }
+            }
+            
+            if (img.file) {
+              const uploadedUrl = await uploadImageToSupabase(img.file)
+              if (uploadedUrl) {
+                return {
+                  id: img.id,
+                  url: uploadedUrl,
+                  position: img.position,
+                  startTime: img.startTime,
+                  endTime: img.endTime
+                }
+              }
+            }
+            
+            return {
+              id: img.id,
+              url: img.url || null,
+              position: img.position,
+              startTime: img.startTime,
+              endTime: img.endTime
+            }
+          })
+        )
+
+        return {
+          id: cut.id,
+          name: cut.name,
+          videoUrl: cut.videoUrl,
+          videoDuration: cut.videoDuration,
+          startTime: cut.startTime,
+          endTime: cut.endTime,
+          trimmedVideoUrl: trimmedVideoUrl,
+          finalVideoUrl: finalVideoUrl,
+          textItems: cut.textItems,
+          imageItems: processedImageItems,
+          isCollapsed: cut.isCollapsed
+        }
+      })
+    )
+
+    const draftData = {
+      cuts: processedCuts,
+      videoTitle: videoTitle.value,
+      cutIdCounter,
+      textItemIdCounter,
+      imageItemIdCounter,
+      activeCutId: activeCutId.value
+    }
+
+    // 既存の動画を更新する場合（draftId.valueが設定されている場合）
+    if (draftId.value) {
+      // 既存の動画を更新（draft_dataも保存）
+      const response = await $fetch('/api/videos/draft', {
+        method: 'POST',
+        body: {
+          title: videoTitle.value || '無題の動画',
+          draft_data: draftData,
+          video_id: draftId.value,
+          user_id: user.id
+        }
+      })
+
+      // 動画URLとサムネイルも更新
+      await $fetch(`/api/videos/${draftId.value}`, {
+        method: 'PATCH',
+        body: {
+          video_url: videoUrl,
+          thumbnail_url: thumbnailUrl,
+          is_draft: false // 完成したのでis_draftをfalseに
+        }
+      })
+
+      console.log('[Save] Video updated successfully:', response)
+      alert('動画を更新しました。')
+    } else {
+      // 新規作成
+      console.log('[Save] Saving video metadata to database')
+      const response = await $fetch('/api/videos', {
+        method: 'POST',
+        body: {
+          title: videoTitle.value || '無題の動画',
+          video_url: videoUrl,
+          thumbnail_url: thumbnailUrl,
+          category_id: null, // 未分類
+          user_id: user.id
+        }
+      }).catch((error: any) => {
+        console.error('[Save] API error details:', {
+          message: error?.data?.message || error?.message,
+          statusCode: error?.statusCode,
+          data: error?.data,
+          fullError: error
+        })
+        throw error
+      })
+
+      // 作成された動画にdraft_dataを保存
+      if (response && response.id) {
+        await $fetch('/api/videos/draft', {
+          method: 'POST',
+          body: {
+            title: videoTitle.value || '無題の動画',
+            draft_data: draftData,
+            video_id: response.id,
+            user_id: user.id
+          }
+        })
+
+        // is_draftをfalseに設定
+        await $fetch(`/api/videos/${response.id}`, {
+          method: 'PATCH',
+          body: {
+            is_draft: false
+          }
+        })
+
+        draftId.value = response.id
+      }
+
+      console.log('[Save] Video saved successfully:', response)
+      alert('動画をマニュアルに保存しました。')
+    }
   } catch (error: any) {
     console.error('[Save] Error saving completed video:', error)
     // Nuxtの$fetchエラーでは、エラーメッセージはerror.data.messageまたはerror.messageに含まれる
@@ -3025,8 +3164,10 @@ const loadDraft = async (draft: any) => {
 const loadDraftFromQuery = async () => {
   const route = useRoute()
   const draftIdParam = route.query.draft_id as string
+  const videoIdParam = route.query.video_id as string
 
-  if (!draftIdParam) return
+  // video_idまたはdraft_idのどちらかが必要
+  if (!draftIdParam && !videoIdParam) return
 
   if (!currentUser.value) {
     // ユーザー情報がまだ読み込まれていない場合は少し待つ
@@ -3044,23 +3185,56 @@ const loadDraftFromQuery = async () => {
       return
     }
 
-    const drafts = await $fetch('/api/videos/drafts', {
-      query: { user_id: user.id }
-    })
-    
-    const draftId = parseInt(draftIdParam)
-    const draft = (drafts as any[]).find(d => d.id === draftId)
-    
-    if (!draft) {
-      console.error('Draft not found:', draftId)
-      alert(`下書き（ID: ${draftId}）が見つかりませんでした`)
+    let video: any = null
+
+    // video_idが指定されている場合（完成した動画を編集）
+    if (videoIdParam) {
+      const videoId = parseInt(videoIdParam)
+      const videos = await $fetch('/api/videos', {
+        query: { organization: currentOrganization.value }
+      })
+      video = (videos as any[]).find((v: any) => v.id === videoId)
+      
+      if (!video) {
+        console.error('Video not found:', videoId)
+        alert(`動画（ID: ${videoId}）が見つかりませんでした`)
+        return
+      }
+
+      // 完成した動画にdraft_dataがない場合は、既存の動画データから構築
+      if (!video.draft_data) {
+        alert('この動画には編集データが保存されていません。新規作成として編集を開始します。')
+        // タイトルだけ設定して、カットは空の状態で開始
+        videoTitle.value = video.title || ''
+        draftId.value = video.id
+        return
+      }
+
+      // draft_dataがある場合は、それを読み込む
+      await loadDraft(video)
       return
     }
 
-    await loadDraft(draft)
+    // draft_idが指定されている場合（下書きを編集）
+    if (draftIdParam) {
+      const drafts = await $fetch('/api/videos/drafts', {
+        query: { user_id: user.id }
+      })
+      
+      const draftId = parseInt(draftIdParam)
+      const draft = (drafts as any[]).find(d => d.id === draftId)
+      
+      if (!draft) {
+        console.error('Draft not found:', draftId)
+        alert(`下書き（ID: ${draftId}）が見つかりませんでした`)
+        return
+      }
+
+      await loadDraft(draft)
+    }
   } catch (error: any) {
-    console.error('Error loading draft from query:', error)
-    alert('下書きの読み込みに失敗しました: ' + (error?.data?.message || error?.message || '不明なエラー'))
+    console.error('Error loading draft/video from query:', error)
+    alert('データの読み込みに失敗しました: ' + (error?.data?.message || error?.message || '不明なエラー'))
   }
 }
 
