@@ -86,6 +86,7 @@ const isCompleting = ref(false)
 const isSavingDraft = ref(false)
 const draftId = ref<number | null>(null)
 const currentUser = ref<{ id: string; user_metadata?: any } | null>(null)
+const currentOrganization = ref<string | null>(null)
 const isOrgAdmin = ref(false)
 
 // 現在選択中のカットを取得
@@ -813,6 +814,56 @@ const loadMediaLibrary = async () => {
       return
     }
     
+    // 現在のユーザーの組織情報を取得
+    if (!currentUser.value) {
+      console.log('[MediaLibrary] Loading user info...')
+      await loadCurrentUser()
+    }
+    
+    if (!currentOrganization.value && currentUser.value?.user_metadata?.organization) {
+      currentOrganization.value = currentUser.value.user_metadata.organization
+      console.log('[MediaLibrary] Organization loaded from user metadata:', currentOrganization.value)
+    }
+    
+    // 組織に属するユーザーIDのリストを取得
+    let organizationUserIds: string[] = []
+    if (currentOrganization.value) {
+      try {
+        console.log('[MediaLibrary] Fetching users for organization:', currentOrganization.value)
+        // APIを使用して組織のユーザーIDを取得
+        const users = await $fetch('/api/users', {
+          method: 'GET',
+          query: {
+            organization: currentOrganization.value
+          }
+        })
+        
+        organizationUserIds = (users || []).map((user: any) => user.id)
+        console.log(`[MediaLibrary] ✅ Found ${organizationUserIds.length} users in organization "${currentOrganization.value}":`, organizationUserIds)
+        
+        // 現在のユーザーが組織に含まれているか確認
+        if (currentUser.value?.id && !organizationUserIds.includes(currentUser.value.id)) {
+          console.warn('[MediaLibrary] ⚠️ Current user is not in organization user list, adding manually')
+          organizationUserIds.push(currentUser.value.id)
+        }
+      } catch (error: any) {
+        console.error('[MediaLibrary] ❌ Error getting organization users:', error)
+        // エラーが発生した場合でも、現在のユーザーのみをリストに追加
+        if (currentUser.value?.id) {
+          organizationUserIds = [currentUser.value.id]
+          console.log('[MediaLibrary] Using current user only due to error:', currentUser.value.id)
+        }
+      }
+    } else {
+      // 組織情報が取得できない場合は、現在のユーザーのみ
+      if (currentUser.value?.id) {
+        organizationUserIds = [currentUser.value.id]
+        console.log('[MediaLibrary] ⚠️ No organization found, using current user only:', currentUser.value.id)
+      } else {
+        console.warn('[MediaLibrary] ❌ No organization and no current user found')
+      }
+    }
+    
     console.log('[MediaLibrary] Fetching video list from Supabase...')
     const { data, error } = await supabase.storage
       .from('videos')
@@ -844,8 +895,18 @@ const loadMediaLibrary = async () => {
     
     console.log('[MediaLibrary] Found videos:', data?.length || 0)
     
+    // デバッグ: 最初のファイルのメタデータを確認
+    if (data && data.length > 0) {
+      console.log('[MediaLibrary] Sample file metadata:', {
+        name: data[0].name,
+        metadata: data[0].metadata,
+        hasMetadata: !!data[0].metadata,
+        metadataKeys: data[0].metadata ? Object.keys(data[0].metadata) : []
+      })
+    }
+    
     // フォルダや完成動画のフォルダを除外
-    const filteredData = (data || []).filter((file) => {
+    let filteredData = (data || []).filter((file) => {
       // フォルダを除外（idがnullのものはフォルダ）
       if (!file.id) {
         return false
@@ -870,6 +931,126 @@ const loadMediaLibrary = async () => {
       }
       return true
     })
+    
+    // Supabase Storageのlist()ではカスタムメタデータが取得できないため、
+    // サーバーサイドでメタデータを取得するAPIエンドポイントを使用する
+    // または、ファイル名にユーザーIDを含める方法もあるが、ここでは別のアプローチを取る
+    // 
+    // 実際には、Storage APIの制限により、カスタムメタデータを取得するには
+    // サーバーサイドで処理する必要があります
+    // 
+    // 一時的な解決策として、アップロード時に設定したメタデータを取得するために、
+    // ファイル情報を再取得する処理を追加します
+    // ただし、これは非効率的なため、より良い方法として、
+    // ファイル名にユーザーIDを含めるか、または別のテーブルで管理することを推奨します
+    
+    // 組織でフィルタリング（メタデータのuserIdで判定）
+    console.log('[MediaLibrary] ====== Filtering by organization ======')
+    console.log('[MediaLibrary] Organization user IDs:', organizationUserIds)
+    console.log('[MediaLibrary] Current user ID:', currentUser.value?.id)
+    console.log('[MediaLibrary] Current organization:', currentOrganization.value)
+    console.log('[MediaLibrary] Total files before filtering:', filteredData.length)
+    
+    // 組織のユーザーIDリストが取得できている場合のみ、組織でフィルタリング
+    if (organizationUserIds.length > 0) {
+      const beforeCount = filteredData.length
+      filteredData = filteredData.filter((file) => {
+        // ファイル名からユーザーIDを抽出
+        // ファイル名形式: {userId}-{timestamp}-{random}.{ext}
+        // UUID形式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36文字)
+        let fileUserId: string | null = null
+        
+        // ファイル名の先頭からUUID形式を抽出（正規表現を使用）
+        const uuidRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+        const match = file.name.match(uuidRegex)
+        if (match && match[1]) {
+          fileUserId = match[1]
+          console.log('[MediaLibrary] Extracted userId from filename:', file.name, '->', fileUserId)
+        }
+        
+        // ファイル名から取得できない場合は、メタデータから取得を試みる
+        if (!fileUserId) {
+          const fileMetadata = file.metadata || {}
+          fileUserId = fileMetadata.userId || fileMetadata.user_id || null
+        }
+        
+        // デバッグ: ファイル名とメタデータの内容を確認
+        if (!fileUserId) {
+          console.log('[MediaLibrary] File metadata check:', {
+            name: file.name,
+            hasMetadata: !!file.metadata,
+            metadata: file.metadata,
+            metadataKeys: file.metadata ? Object.keys(file.metadata) : []
+          })
+        }
+        
+        // 空文字列の場合は null として扱う
+        const normalizedUserId = fileUserId && fileUserId.trim() !== '' ? fileUserId : null
+        
+        // ファイル名からもメタデータからもuserIdが取得できない場合（古いファイル）
+        // 組織でフィルタリングできないため、表示しない
+        if (!normalizedUserId) {
+          console.log('[MediaLibrary] ❌ File filtered out (no userId in filename or metadata):', file.name)
+          return false
+        }
+        
+        // userIdがある場合は、組織のユーザーIDリストに含まれているかチェック
+        const isInOrganization = organizationUserIds.includes(normalizedUserId)
+        if (!isInOrganization) {
+          console.log('[MediaLibrary] ❌ File filtered out (not in organization):', file.name, 'userId:', normalizedUserId)
+        } else {
+          console.log('[MediaLibrary] ✅ File included (in organization):', file.name, 'userId:', normalizedUserId)
+        }
+        return isInOrganization
+      })
+      console.log(`[MediaLibrary] Filtered by organization: ${filteredData.length} videos (from ${beforeCount} files)`)
+    } else if (currentUser.value?.id) {
+      // 組織情報が取得できない場合は、現在のユーザーのファイルのみ表示
+      // ファイル名からユーザーIDを抽出して判定
+      const beforeCount = filteredData.length
+      filteredData = filteredData.filter((file) => {
+        // ファイル名からユーザーIDを抽出
+        // UUID形式: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36文字)
+        let fileUserId: string | null = null
+        
+        // ファイル名の先頭からUUID形式を抽出（正規表現を使用）
+        const uuidRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+        const match = file.name.match(uuidRegex)
+        if (match && match[1]) {
+          fileUserId = match[1]
+        }
+        
+        // ファイル名から取得できない場合は、メタデータから取得
+        if (!fileUserId) {
+          const fileMetadata = file.metadata || {}
+          fileUserId = fileMetadata.userId || fileMetadata.user_id || null
+        }
+        
+        const normalizedUserId = fileUserId && fileUserId.trim() !== '' ? fileUserId : null
+        
+        // userIdがないファイルは表示しない
+        if (!normalizedUserId) {
+          console.log('[MediaLibrary] ❌ File filtered out (no userId in filename or metadata):', file.name)
+          return false
+        }
+        
+        // 現在のユーザーのファイルのみ表示
+        const shouldInclude = normalizedUserId === currentUser.value?.id
+        if (!shouldInclude) {
+          console.log('[MediaLibrary] ❌ File filtered out (not current user):', file.name, 'userId:', normalizedUserId, 'currentUserId:', currentUser.value.id)
+        } else {
+          console.log('[MediaLibrary] ✅ File included (current user):', file.name, 'userId:', normalizedUserId)
+        }
+        return shouldInclude
+      })
+      console.log(`[MediaLibrary] Filtered by current user only: ${filteredData.length} videos (from ${beforeCount} files)`)
+    } else {
+      // 組織情報もユーザー情報も取得できない場合は、何も表示しない
+      console.warn('[MediaLibrary] ⚠️ No organization or current user, showing no files')
+      filteredData = []
+    }
+    
+    console.log('[MediaLibrary] ====== Filtering complete ======')
     
     // ローカルストレージからファイル名マッピングを取得
     let fileNameMapping: Record<string, string> = {}
@@ -986,20 +1167,31 @@ const uploadVideoToSupabase = async (file: File) => {
       return
     }
     
-    // Supabase上の物理ファイル名は英数字のみの安全な名前を付与し、
-    // 元のPC上のファイル名は metadata.originalName として保持する
+    // ユーザー情報が取得されていない場合は取得
+    if (!currentUser.value) {
+      console.log('[Upload] User info not loaded, loading now...')
+      await loadCurrentUser()
+    }
+    
+    // Supabase上の物理ファイル名にユーザーIDを含める
+    // これにより、ファイル名から直接ユーザーIDを取得できる
     const fileExt = file.name.split('.').pop()
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+    const userId = currentUser.value?.id || 'unknown'
+    // ファイル名形式: {userId}-{timestamp}-{random}.{ext}
+    const fileName = `${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
     const filePath = fileName
     
     console.log('[Upload] Uploading video to Supabase:', fileName)
+    console.log('[Upload] Current user ID:', userId)
+    
     const { error: uploadError } = await supabase.storage
       .from('videos')
       .upload(filePath, file, {
         cacheControl: '3600',
         upsert: false,
         metadata: {
-          originalName: file.name
+          originalName: file.name,
+          userId: userId || ''
         }
       })
     
@@ -2841,6 +3033,11 @@ const loadCurrentUser = async () => {
       currentUser.value = {
         id: user.id,
         user_metadata: user.user_metadata
+      }
+      
+      // 組織情報を取得
+      if (user.user_metadata?.organization) {
+        currentOrganization.value = user.user_metadata.organization
       }
       
       const userRole = user.user_metadata?.role || user.app_metadata?.role
