@@ -2907,7 +2907,28 @@ const loadDraft = async (draft: any) => {
   }
 
   try {
-    const data = draft.draft_data
+    // draft_dataが文字列の場合はパース、オブジェクトの場合はそのまま使用
+    let data: any
+    try {
+      data = typeof draft.draft_data === 'string' 
+        ? JSON.parse(draft.draft_data) 
+        : draft.draft_data
+    } catch (parseError) {
+      console.error('[LoadDraft] Error parsing draft_data:', parseError)
+      alert('下書きデータの解析に失敗しました')
+      return
+    }
+    
+    if (!data) {
+      alert('下書きデータが空です')
+      return
+    }
+
+    if (!Array.isArray(data.cuts)) {
+      console.error('[LoadDraft] cuts is not an array:', data.cuts)
+      alert('下書きデータの形式が正しくありません（カットデータが見つかりません）')
+      return
+    }
 
     // カウンターを復元
     cutIdCounter = data.cutIdCounter || 0
@@ -3005,21 +3026,41 @@ const loadDraftFromQuery = async () => {
   const route = useRoute()
   const draftIdParam = route.query.draft_id as string
 
-  if (draftIdParam && currentUser.value) {
-    try {
-      const { data: { user } } = await supabase!.auth.getUser()
-      if (!user) return
+  if (!draftIdParam) return
 
-      const drafts = await $fetch('/api/videos/drafts', {
-        query: { user_id: user.id }
-      })
-      const draft = (drafts as any[]).find(d => d.id === parseInt(draftIdParam))
-      if (draft) {
-        await loadDraft(draft)
-      }
-    } catch (error) {
-      console.error('Error loading draft from query:', error)
+  if (!currentUser.value) {
+    // ユーザー情報がまだ読み込まれていない場合は少し待つ
+    await new Promise(resolve => setTimeout(resolve, 500))
+    if (!currentUser.value) {
+      console.error('User not loaded, cannot load draft')
+      return
     }
+  }
+
+  try {
+    const { data: { user } } = await supabase!.auth.getUser()
+    if (!user) {
+      console.error('User not authenticated')
+      return
+    }
+
+    const drafts = await $fetch('/api/videos/drafts', {
+      query: { user_id: user.id }
+    })
+    
+    const draftId = parseInt(draftIdParam)
+    const draft = (drafts as any[]).find(d => d.id === draftId)
+    
+    if (!draft) {
+      console.error('Draft not found:', draftId)
+      alert(`下書き（ID: ${draftId}）が見つかりませんでした`)
+      return
+    }
+
+    await loadDraft(draft)
+  } catch (error: any) {
+    console.error('Error loading draft from query:', error)
+    alert('下書きの読み込みに失敗しました: ' + (error?.data?.message || error?.message || '不明なエラー'))
   }
 }
 
