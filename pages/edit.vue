@@ -2056,13 +2056,33 @@ const applyOverlays = async () => {
     const textFilters: string[] = []
     const imageOverlays: Array<{ file: string; x: string; y: string; width: number; height: number; startTime: number; endTime: number }> = []
     
-    // テキストサイズに応じたフォントサイズを決定
-    const fontSizeMap = {
-      small: 24,
-      medium: 32,
-      large: 40
+    // テキストサイズに応じたフォントサイズを決定（動画の高さに対する比率で計算）
+    // 基準解像度1080p（高さ1080px）でのフォントサイズを基準とする
+    // 動画に埋め込む際は編集ページで設定したサイズより1ランク下げたサイズを使用
+    const baseHeight = 1080
+    const fontSizeRatioMap = {
+      small: 40 / baseHeight,    // 1080pxの約3.7%（さらに小さいサイズ）
+      medium: 48 / baseHeight,   // 1080pxの約4.4%（小サイズ）
+      large: 64 / baseHeight     // 1080pxの約5.9%（中サイズ）
     }
-    const fontSize = fontSizeMap[textSize.value]
+    // 編集ページで設定したサイズより1ランク下げたサイズを取得
+    const sizeMapping: Record<TextSize, TextSize> = {
+      small: 'small',   // 小はさらに小さいサイズ
+      medium: 'small',  // 中は小サイズ
+      large: 'medium'   // 大は中サイズ
+    }
+    const adjustedTextSize = sizeMapping[textSize.value]
+    // 動画の高さに応じてフォントサイズを計算（最小40px、最大400pxに制限）
+    const fontSizeRatio = fontSizeRatioMap[adjustedTextSize]
+    const calculatedFontSize = Math.max(40, Math.min(400, Math.round(actualVideoHeight * fontSizeRatio)))
+    
+    console.log('[Overlay] Font size calculation:', {
+      textSize: textSize.value,
+      adjustedTextSize: adjustedTextSize,
+      videoHeight: actualVideoHeight,
+      fontSizeRatio: fontSizeRatio,
+      calculatedFontSize: calculatedFontSize
+    })
     
     // テキストオーバーレイを追加
     textItems.value.forEach((item) => {
@@ -2075,7 +2095,7 @@ const applyOverlays = async () => {
         const textFilter =
           `drawtext=fontfile=${fontName}:` +
           `text='${escapedText}':` +
-          `fontsize=${fontSize}:` +
+          `fontsize=${calculatedFontSize}:` +
           `fontcolor=white:` +
           `shadowcolor=black@0.6:` +
           `shadowx=1:` +
@@ -2743,6 +2763,9 @@ const saveCompletedVideoToCourse = async (videoBlob: Blob) => {
       await $fetch(`/api/videos/${draftId.value}`, {
         method: 'PATCH',
         body: {
+          // マニュアル一覧でも編集内容（タイトルなど）が反映されるように、
+          // タイトルも含めて動画情報を更新する
+          title: videoTitle.value || '無題の動画',
           video_url: videoUrl,
           thumbnail_url: thumbnailUrl,
           is_draft: false // 完成したのでis_draftをfalseに
@@ -3287,17 +3310,18 @@ const completeVideo = async () => {
     console.log('[Complete] Starting video concatenation')
     
     // 連結前に、各カットにテキスト・画像オーバーレイを自動適用
-    // finalVideoUrl が既にあるカットは再処理しない
+    // テキストや画像があるカットは、finalVideoUrlがあっても再処理して最新の情報を反映
     for (const cut of cuts.value) {
       if (!cut) continue
       if (!cut.trimmedVideoUrl) continue
-      if (cut.finalVideoUrl) continue
+      // テキストや画像がないカットはスキップ
       if (cut.textItems.length === 0 && cut.imageItems.length === 0) continue
       
       // 対象カットをアクティブにして、既存の applyOverlays を再利用
+      // テキストや画像の情報が変更された場合に備えて、常に再処理する
       activeCutId.value = cut.id
       trimmedVideoUrl.value = cut.trimmedVideoUrl
-      console.log('[Complete] Auto applying overlays for cut:', cut.id)
+      console.log('[Complete] Auto applying overlays for cut:', cut.id, 'textItems:', cut.textItems.length, 'imageItems:', cut.imageItems.length)
       await applyOverlays()
     }
     

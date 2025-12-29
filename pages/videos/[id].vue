@@ -74,7 +74,7 @@
     <div class="main-layout">
       <!-- サイドバー -->
       <aside class="sidebar">
-        <button class="create-btn" @click="navigateToEdit">
+        <button class="create-btn" @click="navigateToCreate">
           <span>+ 作成</span>
         </button>
         <nav class="nav-menu">
@@ -766,6 +766,12 @@ const loadCurrentUser = async () => {
   }
 }
 
+// 新規作成ページに遷移
+const navigateToCreate = () => {
+  router.push('/edit')
+}
+
+// 既存動画の編集ページに遷移
 const navigateToEdit = () => {
   if (!video.value) return
   router.push(`/edit?video_id=${video.value.id}`)
