@@ -155,7 +155,7 @@
             <h1 class="video-title">{{ video.title }}</h1>
             <div class="video-actions-header">
               <button class="btn-secondary" @click="navigateToEdit">編集</button>
-              <button class="btn-primary">書き出し</button>
+              <button class="btn-danger" @click="handleDeleteVideo">削除</button>
             </div>
           </div>
 
@@ -770,6 +770,28 @@ const navigateToEdit = () => {
   router.push('/edit')
 }
 
+// 動画を削除
+const handleDeleteVideo = async () => {
+  if (!video.value) return
+  
+  if (!confirm('この動画を削除してもよろしいですか？\nこの操作は取り消せません。')) {
+    return
+  }
+
+  try {
+    await $fetch(`/api/videos/${video.value.id}`, {
+      method: 'DELETE'
+    })
+    
+    alert('動画を削除しました')
+    // ホームページまたはコース一覧にリダイレクト
+    router.push('/courses')
+  } catch (error: any) {
+    console.error('Error deleting video:', error)
+    alert('動画の削除に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
+  }
+}
+
 // ログアウト処理
 const handleLogout = async () => {
   if (!supabase) {
@@ -1122,7 +1144,7 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.btn-primary, .btn-secondary {
+.btn-primary, .btn-secondary, .btn-danger {
   padding: 10px 20px;
   border: none;
   border-radius: 8px;
@@ -1148,6 +1170,15 @@ onUnmounted(() => {
 
 .btn-secondary:hover {
   background: #e0e0e0;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
 }
 
 .video-main-section {
