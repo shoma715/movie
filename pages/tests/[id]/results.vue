@@ -194,7 +194,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="result in filteredResults" :key="result.userId" class="result-row">
+                  <tr v-for="result in displayedResults" :key="result.userId" class="result-row">
                     <td>
                       <div class="user-cell">
                         <div class="user-avatar">{{ getAvatarInitial(result.userName) }}</div>
@@ -216,6 +216,11 @@
                   </tr>
                 </tbody>
               </table>
+              <div v-if="shouldShowMoreButton" class="show-more-container">
+                <button class="show-more-button" @click="showAllResults = true">
+                  もっと見る
+                </button>
+              </div>
             </div>
           </div>
 
@@ -302,6 +307,7 @@ const statistics = ref<{
 const results = ref<Array<any>>([])
 const testQuestions = ref<Array<any>>([])
 const expandedQuestions = ref<Set<number>>(new Set())
+const showAllResults = ref(false)
 
 // 組織管理者かどうか
 const isOrgAdmin = computed(() => {
@@ -311,6 +317,19 @@ const isOrgAdmin = computed(() => {
 
 // フィルタリングされた結果
 const filteredResults = computed(() => results.value)
+
+// 表示する結果（初期は5人まで、もっと見るをクリックしたら全員）
+const displayedResults = computed(() => {
+  if (showAllResults.value) {
+    return filteredResults.value
+  }
+  return filteredResults.value.slice(0, 5)
+})
+
+// もっと見るボタンを表示するかどうか（5人以上の場合）
+const shouldShowMoreButton = computed(() => {
+  return filteredResults.value.length > 5 && !showAllResults.value
+})
 
 // アバターの初期文字を取得
 const getAvatarInitial = (name: string | undefined) => {
@@ -1016,6 +1035,31 @@ onUnmounted(() => {
 
 .results-table-container {
   overflow-x: auto;
+}
+
+.show-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  margin-top: 16px;
+}
+
+.show-more-button {
+  padding: 12px 32px;
+  background: #5b8ff9;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.show-more-button:hover {
+  background: #4a7dd8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(91, 143, 249, 0.3);
 }
 
 .results-table {
