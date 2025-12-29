@@ -174,7 +174,21 @@
             <div class="section-header">
               <span class="section-icon">📋</span>
               <h2 class="section-title">受験結果一覧</h2>
-              <span class="section-badge">{{ filteredResults.length }}</span>
+              <span class="section-badge">{{ displayedResults.length }}</span>
+              <div class="view-toggle-buttons">
+                <button 
+                  :class="['view-toggle-btn', 'view-toggle-test', { active: !showAllEmployees }]"
+                  @click="showAllEmployees = false"
+                >
+                  テスト受講者のみ
+                </button>
+                <button 
+                  :class="['view-toggle-btn', 'view-toggle-all', { active: showAllEmployees }]"
+                  @click="showAllEmployees = true"
+                >
+                  全従業員表示
+                </button>
+              </div>
             </div>
 
             <div v-if="filteredResults.length === 0" class="empty-state">
@@ -203,16 +217,23 @@
                     </td>
                     <td class="email-cell">{{ result.email }}</td>
                     <td>
-                      <span :class="['score-badge', getScoreClass(result.maxScore, statistics?.maxPossibleScore || 0)]">
+                      <span v-if="result.maxScore !== null && result.maxScore !== undefined" :class="['score-badge', getScoreClass(result.maxScore, statistics?.maxPossibleScore || 0)]">
                         {{ result.maxScore }} / {{ statistics?.maxPossibleScore || 0 }}
                       </span>
+                      <span v-else class="no-data">-</span>
                     </td>
-                    <td>{{ result.attemptCount }}回</td>
+                    <td>
+                      <span v-if="result.attemptCount > 0">{{ result.attemptCount }}回</span>
+                      <span v-else class="no-data">-</span>
+                    </td>
                     <td>
                       <span v-if="result.videoCompletedAt">{{ formatDateTime(result.videoCompletedAt) }}</span>
                       <span v-else class="no-data">-</span>
                     </td>
-                    <td>{{ formatDateTime(result.lastAttemptDate) }}</td>
+                    <td>
+                      <span v-if="result.lastAttemptDate">{{ formatDateTime(result.lastAttemptDate) }}</span>
+                      <span v-else class="no-data">-</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -308,6 +329,14 @@ const results = ref<Array<any>>([])
 const testQuestions = ref<Array<any>>([])
 const expandedQuestions = ref<Set<number>>(new Set())
 const showAllResults = ref(false)
+const showAllEmployees = ref(false)
+const allEmployees = ref<Array<{
+  id: string
+  email: string
+  displayName: string
+}>>([])
+const isLoadingEmployees = ref(false)
+const allEmployeesWatchHistory = ref<Map<string, string>>(new Map())
 
 // 組織管理者かどうか
 const isOrgAdmin = computed(() => {
@@ -318,16 +347,55 @@ const isOrgAdmin = computed(() => {
 // フィルタリングされた結果
 const filteredResults = computed(() => results.value)
 
-// 表示する結果（初期は5人まで、もっと見るをクリックしたら全員）
+// 表示する結果（全従業員表示モードの場合は全従業員とマージ、そうでない場合はテスト受講者のみ）
 const displayedResults = computed(() => {
-  if (showAllResults.value) {
-    return filteredResults.value
+  if (showAllEmployees.value) {
+    // 全従業員表示モード
+    const resultsMap = new Map<string, any>()
+    filteredResults.value.forEach(result => {
+      resultsMap.set(result.userId, result)
+    })
+    
+    // 全従業員とテスト結果をマージ
+    const mergedResults = allEmployees.value.map(employee => {
+      const testResult = resultsMap.get(employee.id)
+      if (testResult) {
+        // テスト結果がある場合はそのまま使用
+        return testResult
+      } else {
+        // テスト結果がない場合は空のデータを返す
+        // 動画視聴履歴がある場合はそれを使用
+        const watchCompletedAt = allEmployeesWatchHistory.value.get(employee.id) || null
+        return {
+          userId: employee.id,
+          userName: employee.displayName,
+          email: employee.email,
+          maxScore: null,
+          attemptCount: 0,
+          videoCompletedAt: watchCompletedAt,
+          lastAttemptDate: null
+        }
+      }
+    })
+    
+    // 全従業員表示モードの場合は常に全員を表示
+    return mergedResults
+  } else {
+    // テスト受講者のみ表示モード
+    if (showAllResults.value) {
+      return filteredResults.value
+    }
+    return filteredResults.value.slice(0, 5)
   }
-  return filteredResults.value.slice(0, 5)
 })
 
-// もっと見るボタンを表示するかどうか（5人以上の場合）
+// もっと見るボタンを表示するかどうか（5人以上の場合、全従業員表示モードでは表示しない）
 const shouldShowMoreButton = computed(() => {
+  // 全従業員表示モードの場合は常にfalse
+  if (showAllEmployees.value) {
+    return false
+  }
+  // テスト受講者のみ表示モードで、5人以上かつまだ全員表示していない場合のみ表示
   return filteredResults.value.length > 5 && !showAllResults.value
 })
 
@@ -430,6 +498,87 @@ const loadCurrentUser = async () => {
   }
 }
 
+// 全従業員を取得
+const loadAllEmployees = async () => {
+  if (!supabase || !currentUser.value || !testInfo.value) {
+    console.error('[TestResults] Missing supabase, currentUser, or testInfo')
+    return
+  }
+
+  try {
+    isLoadingEmployees.value = true
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      console.error('[TestResults] No session found')
+      return
+    }
+
+    const userOrganization = currentUser.value.user_metadata?.organization || '自組織 (ID: 2)'
+    console.log('[TestResults] Loading all employees for organization:', userOrganization)
+
+    const employees = await $fetch('/api/users', {
+      method: 'GET',
+      query: {
+        organization: userOrganization
+      }
+    }) as any[]
+
+    console.log('[TestResults] Loaded employees:', employees.length)
+    allEmployees.value = employees.map(emp => ({
+      id: emp.id || emp.uuid,
+      email: emp.email || '',
+      displayName: emp.displayName || emp.user_metadata?.display_name || emp.user_metadata?.username || emp.email?.split('@')[0] || 'Unknown'
+    }))
+
+    // 全従業員の動画視聴履歴も取得
+    await loadAllEmployeesWatchHistory()
+  } catch (error: any) {
+    console.error('[TestResults] Error loading all employees:', error)
+    allEmployees.value = []
+  } finally {
+    isLoadingEmployees.value = false
+  }
+}
+
+// 全従業員の動画視聴履歴を取得
+const loadAllEmployeesWatchHistory = async () => {
+  if (!supabase || !currentUser.value || !testInfo.value) {
+    return
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      return
+    }
+
+    const videoId = testInfo.value.videoId
+    console.log('[TestResults] Loading watch history for video ID:', videoId)
+
+    const watchHistory = await $fetch(`/api/videos/${videoId}/results`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      }
+    }) as any[]
+
+    console.log('[TestResults] Loaded watch history:', watchHistory.length)
+    
+    // ユーザーIDをキーとしたマップを作成
+    const historyMap = new Map<string, string>()
+    watchHistory.forEach(history => {
+      if (history.completedAt) {
+        historyMap.set(history.userId, history.completedAt)
+      }
+    })
+    
+    allEmployeesWatchHistory.value = historyMap
+  } catch (error: any) {
+    console.error('[TestResults] Error loading watch history:', error)
+    allEmployeesWatchHistory.value = new Map()
+  }
+}
+
 // テスト結果を取得
 const loadTestResults = async () => {
   const testId = route.params.id
@@ -467,6 +616,9 @@ const loadTestResults = async () => {
     
     // テスト問題を読み込む
     await loadTestQuestions(data.test.id)
+    
+    // 全従業員も読み込む（全従業員表示モードで使用）
+    await loadAllEmployees()
   } catch (error: any) {
     console.error('[TestResults] Error loading test results:', error)
     alert('テスト結果の読み込みに失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
@@ -1004,6 +1156,50 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.view-toggle-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.view-toggle-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+}
+
+.view-toggle-test {
+  background: #f87171;
+}
+
+.view-toggle-test:hover {
+  background: #ef4444;
+}
+
+.view-toggle-test.active {
+  background: #dc2626;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+}
+
+.view-toggle-all {
+  background: #60a5fa;
+}
+
+.view-toggle-all:hover {
+  background: #3b82f6;
+}
+
+.view-toggle-all.active {
+  background: #2563eb;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
 }
 
 .section-icon {
