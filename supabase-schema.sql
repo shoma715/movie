@@ -105,3 +105,31 @@ CREATE POLICY "Users can delete video tags"
   ON video_tags FOR DELETE
   USING (auth.role() = 'authenticated');
 
+-- ストレージ動画ファイル名テーブル（メディアライブラリ用）
+CREATE TABLE IF NOT EXISTS storage_video_files (
+  id BIGSERIAL PRIMARY KEY,
+  storage_name TEXT NOT NULL UNIQUE, -- Supabase Storage上のファイル名（例: {userId}-{timestamp}-{random}.mp4）
+  original_name TEXT NOT NULL,       -- アップロード時の元のファイル名（例: ラジオ.mp4）
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  organization VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_storage_video_files_user_id ON storage_video_files(user_id);
+CREATE INDEX IF NOT EXISTS idx_storage_video_files_storage_name ON storage_video_files(storage_name);
+
+-- RLSを有効化
+ALTER TABLE storage_video_files ENABLE ROW LEVEL SECURITY;
+
+-- RLSポリシー: すべてのユーザーが動画ファイル名を閲覧可能（表示名共有のため）
+CREATE POLICY "Storage video files are viewable by everyone"
+  ON storage_video_files FOR SELECT
+  USING (true);
+
+-- RLSポリシー: 認証済みユーザーが動画ファイル名を登録可能
+CREATE POLICY "Users can insert storage video files"
+  ON storage_video_files FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+

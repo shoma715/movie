@@ -1,20 +1,14 @@
 export default defineEventHandler(async (event) => {
   try {
-    const id = getRouterParam(event, 'id')
-    const body = await readBody(event)
-
-    if (!id) {
-      throw createError({
-        statusCode: 400,
-        message: '動画IDは必須です'
-      })
-    }
-
     const config = useRuntimeConfig()
     const supabaseUrl = config.public?.supabase?.url
     const supabaseServiceKey = config.supabase?.serviceKey
 
     if (!supabaseServiceKey || !supabaseUrl) {
+      console.error('[StorageVideoNames] Missing Supabase configuration:', {
+        hasUrl: !!supabaseUrl,
+        hasServiceKey: !!supabaseServiceKey
+      })
       throw createError({
         statusCode: 500,
         message: 'Supabase設定が不完全です'
@@ -29,46 +23,32 @@ export default defineEventHandler(async (event) => {
       }
     })
 
+    // すべての動画ファイル名マッピングを取得
     const { data, error } = await supabaseAdmin
-      .from('videos')
-      .update(body)
-      .eq('id', id)
-      .select()
-      .single()
+      .from('storage_video_files')
+      .select('*')
 
     if (error) {
-      console.error('Error updating video:', error)
+      console.error('[StorageVideoNames] Error fetching mappings:', error)
       throw createError({
         statusCode: 500,
-        message: error.message || '動画の更新に失敗しました'
+        message: `動画名マッピングの取得に失敗しました: ${error.message || 'Unknown error'}`
       })
     }
 
-    return data
+    console.log('[StorageVideoNames] Returning mappings count:', data?.length || 0)
+    return data || []
   } catch (error: any) {
-    console.error('Error in video update API:', error)
+    console.error('[StorageVideoNames] Error in names.get API:', error)
     if (error.statusCode) {
       throw error
     }
     throw createError({
       statusCode: 500,
-      message: error.message || '動画の更新に失敗しました'
+      message: error.message || '動画名マッピングの取得に失敗しました'
     })
   }
 })
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -1037,7 +1037,7 @@ const loadMediaLibrary = async () => {
         // 現在のユーザーのファイルのみ表示
         const shouldInclude = normalizedUserId === currentUser.value?.id
         if (!shouldInclude) {
-          console.log('[MediaLibrary] ❌ File filtered out (not current user):', file.name, 'userId:', normalizedUserId, 'currentUserId:', currentUser.value.id)
+          console.log('[MediaLibrary] ❌ File filtered out (not current user):', file.name, 'userId:', normalizedUserId, 'currentUserId:', currentUser.value?.id || 'undefined')
         } else {
           console.log('[MediaLibrary] ✅ File included (current user):', file.name, 'userId:', normalizedUserId)
         }
@@ -1045,9 +1045,10 @@ const loadMediaLibrary = async () => {
       })
       console.log(`[MediaLibrary] Filtered by current user only: ${filteredData.length} videos (from ${beforeCount} files)`)
     } else {
-      // 組織情報もユーザー情報も取得できない場合は、何も表示しない
-      console.warn('[MediaLibrary] ⚠️ No organization or current user, showing no files')
-      filteredData = []
+      // 組織情報もユーザー情報も取得できない場合は、警告を出すが、ファイルは表示する
+      // （ユーザー情報が取得できていないだけの可能性があるため）
+      console.warn('[MediaLibrary] ⚠️ No organization or current user, but showing files anyway')
+      // filteredDataはそのまま（フィルタリングしない）
     }
     
     console.log('[MediaLibrary] ====== Filtering complete ======')
@@ -1060,18 +1061,104 @@ const loadMediaLibrary = async () => {
     } catch (storageError) {
       console.warn('[MediaLibrary] Could not load file name mapping from localStorage:', storageError)
     }
+
+    // Supabase上のテーブルから共有ファイル名マッピングを取得
+    let sharedNameMapping: Record<string, string> = {}
+    let sharedNameMappingByPrefix: Record<string, string> = {} // UUIDプレフィックスでマッチする用
+    try {
+      const nameRecords: Array<{ storage_name: string; original_name: string }> = await $fetch('/api/storage/videos/names').catch((fetchError) => {
+        console.error('[MediaLibrary] API fetch error:', fetchError)
+        // エラーが発生した場合は空配列を返す
+        return []
+      })
+      console.log('[MediaLibrary] Raw name records from API:', nameRecords)
+      
+      // まず完全一致でのマッピングを構築
+      sharedNameMapping = (nameRecords || []).reduce((acc, record) => {
+        if (record.storage_name && record.original_name) {
+          acc[record.storage_name] = record.original_name
+        }
+        return acc
+      }, {} as Record<string, string>)
+      
+      // UUIDプレフィックスでのマッピングを構築（より確実にマッチするように）
+      // テーブルに完全なファイル名が保存されていない場合でも、UUIDでマッチできるようにする
+      for (const record of (nameRecords || [])) {
+        if (record.storage_name && record.original_name) {
+          const uuidMatch = record.storage_name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+          if (uuidMatch && uuidMatch[1]) {
+            const uuid = uuidMatch[1]
+            // UUIDプレフィックスでのマッピングを構築（テーブルにUUIDのみが保存されている場合でも対応）
+            // 既に存在しない場合、または現在のレコードのstorage_nameがより長い場合（完全なファイル名を優先）
+            if (!sharedNameMappingByPrefix[uuid] || record.storage_name.length > (sharedNameMapping[record.storage_name] ? record.storage_name.length : 0)) {
+              sharedNameMappingByPrefix[uuid] = record.original_name
+            }
+          }
+        }
+      }
+      
+      console.log('[MediaLibrary] Loaded shared name mapping from Supabase:', Object.keys(sharedNameMapping).length, 'entries')
+      console.log('[MediaLibrary] Shared name mapping sample:', Object.entries(sharedNameMapping).slice(0, 5))
+      console.log('[MediaLibrary] Prefix mapping count:', Object.keys(sharedNameMappingByPrefix).length)
+      console.log('[MediaLibrary] Prefix mapping sample:', Object.entries(sharedNameMappingByPrefix).slice(0, 3))
+    } catch (nameError) {
+      console.error('[MediaLibrary] ❌ Could not load shared name mapping from Supabase:', nameError)
+    }
     
     uploadedVideos.value = filteredData.map((file: any) => {
-      // メタデータの取得を試みる（複数の可能性を確認）
+      // メタデータと共有テーブル、ローカルストレージから元のファイル名を取得
       let originalName = null
-      if (file.metadata?.originalName) {
+      
+      // 優先順位1: Supabase上の共有テーブルから取得（完全一致）
+      if (sharedNameMapping[file.name]) {
+        originalName = sharedNameMapping[file.name]
+        console.log('[MediaLibrary] ✅ Got original name from shared mapping (exact match):', file.name, '->', originalName)
+      }
+      // 優先順位1.5: UUIDプレフィックスでマッチ（ファイル名が完全な形式の場合、またはテーブルにUUIDのみが保存されている場合）
+      if (!originalName) {
+        const uuidMatch = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+        if (uuidMatch && uuidMatch[1]) {
+          const uuid = uuidMatch[1]
+          // UUIDプレフィックスでのマッチングを試行
+          if (sharedNameMappingByPrefix[uuid]) {
+            originalName = sharedNameMappingByPrefix[uuid]
+            console.log('[MediaLibrary] ✅ Got original name from shared mapping (prefix match):', file.name, 'UUID:', uuid, '->', originalName)
+          } else {
+            // テーブルのstorage_nameがUUIDのみの場合、そのUUIDで直接マッチを試行
+            if (sharedNameMapping[uuid]) {
+              originalName = sharedNameMapping[uuid]
+              console.log('[MediaLibrary] ✅ Got original name from shared mapping (UUID direct match):', file.name, 'UUID:', uuid, '->', originalName)
+            }
+          }
+        }
+      }
+      
+      // 優先順位2: メタデータから取得
+      if (!originalName && file.metadata?.originalName) {
         originalName = file.metadata.originalName
-      } else if (file.metadata && typeof file.metadata === 'object' && 'originalName' in file.metadata) {
+        console.log('[MediaLibrary] Got original name from metadata:', file.name, '->', originalName)
+      } else if (!originalName && file.metadata && typeof file.metadata === 'object' && 'originalName' in file.metadata) {
         originalName = file.metadata.originalName
-      } else if (fileNameMapping[file.name]) {
-        // ローカルストレージから取得
+        console.log('[MediaLibrary] Got original name from metadata (alt):', file.name, '->', originalName)
+      }
+      
+      // 優先順位3: ローカルストレージから取得（最後の手段）
+      if (!originalName && fileNameMapping[file.name]) {
         originalName = fileNameMapping[file.name]
         console.log('[MediaLibrary] Got original name from localStorage:', file.name, '->', originalName)
+      }
+      
+      // デバッグ: マッチしなかった場合のログ
+      if (!originalName) {
+        const uuidMatch = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+        console.warn('[MediaLibrary] ⚠️ Could not find original name for:', file.name, {
+          hasSharedMapping: !!sharedNameMapping[file.name],
+          hasPrefixMapping: !!(uuidMatch && uuidMatch[1] && sharedNameMappingByPrefix[uuidMatch[1]]),
+          hasMetadata: !!file.metadata,
+          hasLocalStorage: !!fileNameMapping[file.name],
+          extractedUUID: uuidMatch ? uuidMatch[1] : null,
+          sharedMappingKeys: Object.keys(sharedNameMapping).slice(0, 5)
+        })
       }
       
       return {
@@ -1097,10 +1184,60 @@ const loadMediaLibrary = async () => {
           console.log('[MediaLibrary] Got URL for:', video.name)
         }
         
-        // メタデータがまだ取得できていない場合、ローカルストレージから取得を試みる
-        if (!video.originalName && fileNameMapping[video.name]) {
-          video.originalName = fileNameMapping[video.name] || null
-          console.log('[MediaLibrary] Got original name from localStorage (fallback):', video.name, '->', video.originalName)
+        // メタデータがまだ取得できていない場合、共有テーブル→ローカルストレージの順で取得を試みる
+        if (!video.originalName) {
+          // 完全一致でマッチ
+          if (sharedNameMapping[video.name]) {
+            video.originalName = sharedNameMapping[video.name] || null
+            console.log('[MediaLibrary] Got original name from shared mapping (fallback exact):', video.name, '->', video.originalName)
+          }
+          // UUIDプレフィックスでマッチ（テーブルにUUIDのみが保存されている場合にも対応）
+          if (!video.originalName) {
+            const uuidMatch = video.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+            if (uuidMatch && uuidMatch[1]) {
+              const uuid = uuidMatch[1]
+              // UUIDプレフィックスでのマッチングを試行
+              if (sharedNameMappingByPrefix[uuid]) {
+                video.originalName = sharedNameMappingByPrefix[uuid]
+                console.log('[MediaLibrary] Got original name from shared mapping (fallback prefix):', video.name, 'UUID:', uuid, '->', video.originalName)
+              } else if (sharedNameMapping[uuid]) {
+                // テーブルのstorage_nameがUUIDのみの場合、そのUUIDで直接マッチ
+                video.originalName = sharedNameMapping[uuid]
+                console.log('[MediaLibrary] Got original name from shared mapping (fallback UUID direct):', video.name, 'UUID:', uuid, '->', video.originalName)
+              }
+            }
+          }
+          
+          // それでも見つからない場合はローカルストレージから
+          if (!video.originalName && fileNameMapping[video.name]) {
+            video.originalName = fileNameMapping[video.name] || null
+            console.log('[MediaLibrary] Got original name from localStorage (fallback):', video.name, '->', video.originalName)
+          }
+          
+          // UUIDプレフィックスでマッチできた場合、テーブルのstorage_nameを実際のファイル名に更新する（将来の完全一致マッチングのため）
+          if (video.originalName) {
+            const uuidMatch = video.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+            if (uuidMatch && uuidMatch[1]) {
+              const uuid = uuidMatch[1]
+              // テーブルにUUIDのみが保存されている場合、実際のファイル名に更新
+              if (sharedNameMapping[uuid] && !sharedNameMapping[video.name]) {
+                try {
+                  await $fetch('/api/storage/videos/names', {
+                    method: 'POST',
+                    body: {
+                      storageName: video.name, // 実際の完全なファイル名
+                      originalName: video.originalName,
+                      userId: currentUser.value?.id || null,
+                      organization: currentOrganization.value || null
+                    }
+                  })
+                  console.log('[MediaLibrary] ✅ Updated storage_name in table:', uuid, '->', video.name)
+                } catch (updateError) {
+                  console.warn('[MediaLibrary] Could not update storage_name in table:', updateError)
+                }
+              }
+            }
+          }
         }
       } catch (urlError) {
         console.warn(`[MediaLibrary] Could not get URL for ${video.name}:`, urlError)
@@ -1173,6 +1310,17 @@ const uploadVideoToSupabase = async (file: File) => {
       await loadCurrentUser()
     }
     
+    // ファイルサイズをチェック（現在のSupabase Storageの制限を確認してください）
+    const fileSizeInMB = file.size / (1024 * 1024)
+    const fileSizeInGB = fileSizeInMB / 1024
+    
+    console.log('[Upload] File size:', {
+      name: file.name,
+      size: file.size,
+      sizeInMB: fileSizeInMB.toFixed(2),
+      sizeInGB: fileSizeInGB.toFixed(2)
+    })
+    
     // Supabase上の物理ファイル名にユーザーIDを含める
     // これにより、ファイル名から直接ユーザーIDを取得できる
     const fileExt = file.name.split('.').pop()
@@ -1205,10 +1353,51 @@ const uploadVideoToSupabase = async (file: File) => {
       } catch (storageError) {
         console.warn('[Upload] Could not save file name mapping to localStorage:', storageError)
       }
+
+      // Supabase上の共有テーブルにも動画ファイル名を保存（全ユーザーで共有するため）
+      // 注意: storageNameには完全なファイル名（fileName）を保存する
+      try {
+        const saveResult = await $fetch('/api/storage/videos/names', {
+          method: 'POST',
+          body: {
+            storageName: fileName, // 完全なファイル名: {userId}-{timestamp}-{random}.{ext}
+            originalName: file.name, // 元のファイル名: ラジオ.mp4 など
+            userId: userId || null,
+            organization: currentOrganization.value || null
+          }
+        })
+        console.log('[Upload] ✅ Saved file name mapping to Supabase table:', {
+          storageName: fileName,
+          originalName: file.name,
+          userId: userId,
+          organization: currentOrganization.value,
+          result: saveResult
+        })
+      } catch (nameError: any) {
+        console.error('[Upload] ❌ Could not save file name mapping to Supabase table:', {
+          error: nameError,
+          message: nameError?.message,
+          statusCode: nameError?.statusCode,
+          storageName: fileName,
+          originalName: file.name
+        })
+        // エラーが発生してもアップロードは続行（警告のみ）
+      }
     }
     
     if (uploadError) {
       console.error('[Upload] Upload error:', uploadError)
+      
+      // ファイルサイズ超過エラーの場合、より詳細なメッセージを表示
+      if (uploadError.message?.includes('exceeded') || uploadError.message?.includes('maximum')) {
+        console.error('[Upload] File size exceeded limit:', {
+          fileName: file.name,
+          fileSizeInMB: fileSizeInMB.toFixed(2),
+          fileSizeInGB: fileSizeInGB.toFixed(2),
+          error: uploadError.message
+        })
+        alert(`動画ファイルが大きすぎます。\n\nファイル名: ${file.name}\n現在のファイルサイズ: ${fileSizeInMB.toFixed(2)}MB (${fileSizeInGB.toFixed(2)}GB)\n\nSupabase Storageのファイルサイズ制限を超えています。\nSupabaseダッシュボードで「videos」バケットの設定を確認し、ファイルサイズ制限を増やしてください。`)
+      }
       
       // バケットが存在しない場合の特別な処理
       if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
@@ -1930,6 +2119,11 @@ const togglePanel = (panel: 'text' | 'image' | null) => {
 // メディアライブラリを開く
 const openMediaLibrary = async () => {
   console.log('[MediaLibrary] Opening media library...')
+  // ユーザー情報が取得されていない場合は取得
+  if (!currentUser.value) {
+    console.log('[MediaLibrary] User info not loaded, loading now...')
+    await loadCurrentUser()
+  }
   // メディアライブラリを開く前に最新の状態を読み込む
   await loadMediaLibrary()
   console.log('[MediaLibrary] Current videos count:', uploadedVideos.value.length)
@@ -2889,6 +3083,17 @@ const uploadVideoToSupabaseForDraft = async (videoUrl: string): Promise<string |
       const response = await fetch(videoUrl)
       const blob = await response.blob()
       
+      // ファイルサイズをチェック（現在のSupabase Storageの制限を確認してください）
+      // デフォルトは50MBですが、Supabaseダッシュボードで変更可能です
+      const fileSizeInMB = blob.size / (1024 * 1024)
+      const fileSizeInGB = fileSizeInMB / 1024
+      
+      console.log('[UploadVideoForDraft] File size:', {
+        size: blob.size,
+        sizeInMB: fileSizeInMB.toFixed(2),
+        sizeInGB: fileSizeInGB.toFixed(2)
+      })
+      
       const fileName = `draft-videos/${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
       
       const { error: uploadError } = await supabase.storage
@@ -2901,6 +3106,17 @@ const uploadVideoToSupabaseForDraft = async (videoUrl: string): Promise<string |
 
       if (uploadError) {
         console.error('[UploadVideoForDraft] Upload error:', uploadError)
+        
+        // ファイルサイズ超過エラーの場合、より詳細なメッセージを表示
+        if (uploadError.message?.includes('exceeded') || uploadError.message?.includes('maximum')) {
+          console.error('[UploadVideoForDraft] File size exceeded limit:', {
+            fileSizeInMB: fileSizeInMB.toFixed(2),
+            fileSizeInGB: fileSizeInGB.toFixed(2),
+            error: uploadError.message
+          })
+          // ユーザーに通知（必要に応じてalertを表示）
+          // alert(`動画ファイルが大きすぎます。\n\n現在のファイルサイズ: ${fileSizeInMB.toFixed(2)}MB (${fileSizeInGB.toFixed(2)}GB)\n\nSupabase Storageのファイルサイズ制限を超えています。Supabaseダッシュボードでバケット設定を確認してください。`)
+        }
         return null
       }
 
