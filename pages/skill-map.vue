@@ -1,5 +1,5 @@
 <template>
-  <div class="organization-page">
+  <div class="skill-map-page">
     <!-- ヘッダー -->
     <header class="header">
       <div class="header-left">
@@ -212,7 +212,7 @@
             />
           </div>
           <div class="nav-item-wrapper">
-            <NuxtLink to="/skill-map" class="nav-item">
+            <NuxtLink to="/skill-map" class="nav-item active">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
                 <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
@@ -231,8 +231,8 @@
               placement="right"
             />
           </div>
-          <div class="nav-item-wrapper">
-            <NuxtLink to="/organization" class="nav-item active">
+          <div v-if="currentUser && (currentUser.user_metadata?.role === 'org_admin' || currentUser.user_metadata?.role === 'organization_admin')" class="nav-item-wrapper">
+            <NuxtLink to="/organization" class="nav-item">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
                 <line x1="9" y1="3" x2="9" y2="21"/>
@@ -269,9 +269,9 @@
 
       <!-- メインコンテンツ -->
       <main class="content-area">
-        <div class="user-management">
+        <div class="skill-map-content">
           <div class="page-header">
-            <h1 class="page-title">ユーザ管理</h1>
+            <h1 class="page-title">{{ organizationName || 'スキルマップ' }}</h1>
             <button class="tutorial-btn">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 10v6M2 10l10-8 10 8M2 10v6c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-6"/>
@@ -281,104 +281,134 @@
             </button>
           </div>
 
-          <!-- 新規ユーザ作成セクション -->
-          <div class="create-user-section">
-            <button class="section-toggle" @click="showCreateForm = !showCreateForm">
-              <span>{{ showCreateForm ? '▼' : '▶' }} 新規ユーザ作成</span>
-            </button>
-            
-            <div v-if="showCreateForm" class="create-form">
-              <div class="form-row">
-                <div class="form-group">
-                  <label>メールアドレス</label>
-                  <input 
-                    v-model="newUser.email" 
-                    type="email" 
-                    placeholder="メールアドレスを入力"
-                    class="form-input"
-                  />
-                </div>
-                <div class="form-group">
-                  <label>表示名</label>
-                  <input 
-                    v-model="newUser.displayName" 
-                    type="text" 
-                    placeholder="表示名を入力"
-                    class="form-input"
-                  />
-                </div>
-                <div class="form-group">
-                  <label>パスワード</label>
-                  <input 
-                    v-model="newUser.password" 
-                    type="password" 
-                    placeholder="パスワードを入力"
-                    class="form-input"
-                  />
-                </div>
-                <div class="form-group">
-                  <label>所属組織</label>
-                  <input 
-                    :value="currentOrganization"
-                    type="text" 
-                    readonly
-                    class="form-input readonly"
-                  />
-                </div>
-                <div class="form-group">
-                  <label>ロール</label>
-                  <select v-model="newUser.role" class="form-input">
-                    <option value="user">一般ユーザー</option>
-                    <option value="org_admin">組織管理者</option>
-                  </select>
-                </div>
-              </div>
-              <button class="create-btn-form" @click="createUser" :disabled="isCreating">
-                {{ isCreating ? '作成中...' : '作成する' }}
-              </button>
-            </div>
+          <!-- スキルマップテーブル -->
+          <div class="skill-map-table-container">
+            <table class="skill-map-table">
+              <thead>
+                <tr>
+                  <th class="skill-column">スキル</th>
+                  <th 
+                    v-for="user in displayedUsers" 
+                    :key="user.id"
+                    class="user-column"
+                  >
+                    {{ user.displayName }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="isLoading">
+                  <td :colspan="displayedUsers.length + 1" class="loading-cell">
+                    読み込み中...
+                  </td>
+                </tr>
+                <template v-else>
+                  <!-- スキルが0件で管理者でない場合 -->
+                  <tr v-if="skills.length === 0 && !isOrgAdmin">
+                    <td :colspan="displayedUsers.length + 1" class="empty-cell">
+                      スキルがまだ登録されていません
+                    </td>
+                  </tr>
+                  <!-- デフォルト：スキル追加行（一番上、スキルが0件の場合のみ） -->
+                  <tr v-if="skills.length === 0 && isOrgAdmin" class="add-skill-row">
+                    <td class="skill-cell">
+                      <button class="add-skill-btn" @click="showAddSkillModal = true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <circle cx="12" cy="12" r="10"/>
+                          <line x1="12" y1="8" x2="12" y2="16"/>
+                          <line x1="8" y1="12" x2="16" y2="12"/>
+                        </svg>
+                        <span>スキルを追加</span>
+                      </button>
+                    </td>
+                    <td 
+                      v-for="user in displayedUsers" 
+                      :key="`add-empty-${user.id}`"
+                      class="proficiency-cell"
+                    >
+                    </td>
+                  </tr>
+                  <!-- スキル一覧（スキルが1件以上ある場合） -->
+                  <template v-if="skills.length > 0">
+                    <tr v-for="skill in skills" :key="skill.id" class="skill-row">
+                      <td class="skill-cell">
+                        <div class="skill-name-wrapper">
+                          <div v-if="isOrgAdmin" class="skill-actions">
+                            <button 
+                              class="skill-action-btn remove-btn" 
+                              @click="deleteSkill(skill.id)"
+                              title="スキルを削除"
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                <line x1="9" y1="9" x2="15" y2="15"/>
+                              </svg>
+                            </button>
+                          </div>
+                          <span class="skill-name">{{ skill.name }}</span>
+                        </div>
+                      </td>
+                      <td 
+                        v-for="user in displayedUsers" 
+                        :key="`${skill.id}-${user.id}`"
+                        class="proficiency-cell"
+                      >
+                        <span class="proficiency-symbol" :class="getProficiencyClass(getProficiencyLevel(skill.id, user.id))">
+                          {{ getProficiencySymbol(getProficiencyLevel(skill.id, user.id)) }}
+                        </span>
+                      </td>
+                    </tr>
+                    <!-- スキル追加行（管理者のみ、スキル一覧の下に表示） -->
+                    <tr v-if="isOrgAdmin" class="add-skill-row">
+                      <td class="skill-cell">
+                        <button class="add-skill-btn" @click="showAddSkillModal = true">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="16"/>
+                            <line x1="8" y1="12" x2="16" y2="12"/>
+                          </svg>
+                          <span>スキルを追加</span>
+                        </button>
+                      </td>
+                      <td 
+                        v-for="user in displayedUsers" 
+                        :key="`add-${user.id}`"
+                        class="proficiency-cell"
+                      >
+                      </td>
+                    </tr>
+                  </template>
+                </template>
+              </tbody>
+            </table>
           </div>
 
-          <!-- ユーザ一覧 -->
-          <div class="user-list-section">
-            <h2 class="section-title">ユーザ一覧</h2>
-            <div class="table-container">
-              <table class="user-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>メール</th>
-                    <th>表示名</th>
-                    <th>組織</th>
-                    <th>ロール</th>
-                    <th>有効</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="isLoading">
-                    <td colspan="7" class="loading-cell">読み込み中...</td>
-                  </tr>
-                  <tr v-else-if="users.length === 0">
-                    <td colspan="7" class="empty-cell">ユーザーが存在しません</td>
-                  </tr>
-                  <tr v-else v-for="user in users" :key="user.id">
-                    <td>{{ user.id }}</td>
-                    <td>{{ user.email }}</td>
-                    <td>{{ user.displayName }}</td>
-                    <td>{{ user.organization }}</td>
-                    <td>{{ user.role }}</td>
-                    <td>
-                      <span :class="['status-badge', user.active ? 'active' : 'inactive']">
-                        {{ user.active ? 'Yes' : 'No' }}
-                      </span>
-                    </td>
-                    <td>
-                      <button class="edit-btn" @click="editUser(user)">編集</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+          <!-- スキル追加モーダル -->
+          <div v-if="showAddSkillModal" class="modal-overlay" @click="showAddSkillModal = false">
+            <div class="modal-content" @click.stop>
+              <div class="modal-header">
+                <h2>スキルを追加</h2>
+                <button class="close-btn" @click="showAddSkillModal = false">×</button>
+              </div>
+              <div class="modal-body">
+                <div class="form-group">
+                  <label class="form-label">スキル名 <span class="required">*</span></label>
+                  <input 
+                    v-model="newSkillName" 
+                    type="text" 
+                    class="form-input" 
+                    placeholder="例: 月次負荷計画立案"
+                    @keyup.enter="addSkill"
+                  />
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button class="btn-cancel" @click="showAddSkillModal = false">キャンセル</button>
+                <button class="btn-confirm" @click="addSkill" :disabled="!newSkillName.trim() || isAddingSkill">
+                  {{ isAddingSkill ? '追加中...' : '追加' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -401,13 +431,62 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 
 // 現在のユーザー情報
 const currentUser = ref<{
+  id?: string
   email?: string
   displayName?: string
   user_metadata?: any
 } | null>(null)
 
+// 現在の組織
+const currentOrganization = ref<string | null>(null)
+const organizationName = ref<string>('')
+
 // ユーザーメニューの表示状態
 const showUserMenu = ref(false)
+
+// 組織管理者かどうか
+const isOrgAdmin = ref(false)
+
+// スキル一覧
+const skills = ref<Array<{
+  id: number
+  name: string
+  organization: string
+}>>([])
+
+// 習熟度データ
+const proficiencies = ref<Array<{
+  skillId: number
+  skillName: string
+  userProficiencies: Array<{
+    userId: string
+    displayName: string
+    proficiencyLevel: string
+  }>
+}>>([])
+
+// 組織内のユーザー一覧
+const organizationUsers = ref<Array<{
+  id: string
+  displayName: string
+}>>([])
+
+// 表示するユーザー（管理者は全員、一般ユーザーは自分のみ）
+const displayedUsers = computed(() => {
+  if (isOrgAdmin.value) {
+    return organizationUsers.value
+  } else {
+    return organizationUsers.value.filter(u => u.id === currentUser.value?.id)
+  }
+})
+
+// ローディング状態
+const isLoading = ref(false)
+const isAddingSkill = ref(false)
+
+// モーダル
+const showAddSkillModal = ref(false)
+const newSkillName = ref('')
 
 // アバターの初期文字を取得
 const getAvatarInitial = (name: string | undefined) => {
@@ -416,155 +495,9 @@ const getAvatarInitial = (name: string | undefined) => {
   return firstChar.toUpperCase()
 }
 
-// 新規ユーザー作成フォーム
-const showCreateForm = ref(true)
-const newUser = ref({
-  email: '',
-  displayName: '',
-  password: '',
-  organization: '自組織 (ID: 2)',
-  role: 'user'
-})
-
-// 現在の組織（実際の実装では、ログインユーザーから取得）
-const currentOrganization = ref('自組織 (ID: 2)')
-
-// ユーザー一覧
-const users = ref<Array<{
-  id: number
-  email: string
-  displayName: string
-  organization: string
-  role: string
-  active: boolean
-}>>([])
-
-const isLoading = ref(false)
-const isCreating = ref(false)
-const errorMessage = ref<string | null>(null)
-
 // 動画編集画面に遷移
 const navigateToEdit = () => {
   router.push('/edit')
-}
-
-// ユーザー一覧を取得
-const loadUsers = async () => {
-  if (!supabase) {
-    console.warn('Supabase client not available')
-    return
-  }
-
-  try {
-    isLoading.value = true
-    errorMessage.value = null
-
-    // 現在の組織を確認
-    console.log('[LoadUsers] Current organization:', currentOrganization.value)
-    
-    // APIエンドポイントからユーザー一覧を取得（現在の組織でフィルタリング）
-    const response = await $fetch('/api/users', {
-      method: 'GET',
-      query: {
-        organization: currentOrganization.value
-      }
-    }).catch((error) => {
-      console.error('[LoadUsers] Error fetching users:', error)
-      // APIが存在しない場合は、空の配列を返す
-      return []
-    })
-
-    console.log('[LoadUsers] Fetched users:', response)
-
-    if (response && Array.isArray(response)) {
-      // レスポンスをフォーマット（組織情報はAPIから取得したものを使用）
-      users.value = response.map((user: any) => ({
-        id: user.id || user.uuid,
-        email: user.email || '',
-        displayName: user.displayName || user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || 'Unknown',
-        organization: user.organization || currentOrganization.value,
-        role: user.role || user.user_metadata?.role || 'user',
-        active: user.active !== undefined ? user.active : (user.email_confirmed_at !== null)
-      }))
-      
-      console.log('[LoadUsers] Formatted users:', users.value)
-    } else {
-      users.value = []
-    }
-  } catch (error: any) {
-    console.error('Error loading users:', error)
-    errorMessage.value = 'ユーザー一覧の取得に失敗しました'
-    users.value = []
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// ユーザーを作成
-const createUser = async () => {
-  if (!newUser.value.email || !newUser.value.displayName || !newUser.value.password) {
-    alert('メールアドレス、表示名、パスワードは必須です')
-    return
-  }
-
-  if (!supabase) {
-    alert('Supabase接続が利用できません')
-    return
-  }
-
-  try {
-    isCreating.value = true
-    errorMessage.value = null
-
-    // 現在の組織を確認
-    console.log('[CreateUser] Current organization:', currentOrganization.value)
-    
-    // APIエンドポイントにユーザー作成リクエストを送信
-    const requestBody = {
-      email: newUser.value.email,
-      username: newUser.value.displayName,
-      password: newUser.value.password,
-      role: newUser.value.role || 'user',
-      organization: currentOrganization.value
-    }
-    
-    console.log('[CreateUser] Request body:', { ...requestBody, password: '***' })
-    
-    const response = await $fetch('/api/users', {
-      method: 'POST',
-      body: requestBody
-    }).catch((error: any) => {
-      console.error('[CreateUser] Error creating user:', error)
-      throw new Error(error?.data?.message || error?.message || 'ユーザーの作成に失敗しました')
-    })
-
-    console.log('[CreateUser] User created successfully:', response)
-
-    // 成功したらフォームをリセット
-    newUser.value = {
-      email: '',
-      displayName: '',
-      password: '',
-      organization: currentOrganization.value,
-      role: 'user'
-    }
-
-    // ユーザー一覧を再読み込み
-    await loadUsers()
-
-    alert('ユーザーを作成しました')
-  } catch (error: any) {
-    console.error('Error creating user:', error)
-    alert(error.message || 'ユーザーの作成に失敗しました')
-  } finally {
-    isCreating.value = false
-  }
-}
-
-// ユーザーを編集
-const editUser = (user: any) => {
-  // TODO: 編集機能を実装
-  alert(`ユーザー ${user.displayName} の編集機能は今後実装予定です`)
 }
 
 // ログアウト処理
@@ -607,43 +540,230 @@ const loadCurrentUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
       currentUser.value = {
+        id: user.id,
         email: user.email || '',
         displayName: user.user_metadata?.display_name || user.user_metadata?.username || user.email?.split('@')[0] || '',
         user_metadata: user.user_metadata
       }
-      // 組織情報も取得
+      
+      // 組織情報を取得
       if (user.user_metadata?.organization) {
         currentOrganization.value = user.user_metadata.organization
+        organizationName.value = user.user_metadata.organization
       }
       
       // 組織管理者かどうかをチェック
       const userRole = user.user_metadata?.role || user.app_metadata?.role
-      if (userRole !== 'org_admin') {
-        // 組織管理者でない場合はホームページにリダイレクト
-        alert('このページにアクセスする権限がありません。組織管理者のみアクセスできます。')
-        router.push('/home')
-        return
-      }
-    } else {
-      // 未ログインの場合はログインページにリダイレクト
-      router.push('/login')
-      return
+      isOrgAdmin.value = userRole === 'org_admin' || userRole === 'organization_admin'
     }
   } catch (error) {
     console.error('Error loading user:', error)
-    router.push('/login')
   }
 }
 
-// コンポーネントマウント時にユーザー一覧とユーザー情報を読み込む
+// スキル一覧を取得
+const loadSkills = async () => {
+  if (!currentOrganization.value || !supabase) return
+
+  try {
+    isLoading.value = true
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+
+    const skillsData = await $fetch('/api/skills', {
+      method: 'GET',
+      query: {
+        organization: currentOrganization.value
+      }
+    })
+
+    skills.value = skillsData || []
+  } catch (error) {
+    console.error('Error loading skills:', error)
+    skills.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 習熟度とユーザー一覧を取得
+const loadProficiencies = async () => {
+  if (!currentOrganization.value || !supabase) return
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+
+    const proficienciesData = await $fetch('/api/skills/proficiencies', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      query: {
+        organization: currentOrganization.value
+      }
+    })
+
+    proficiencies.value = (proficienciesData || []) as Array<{
+      skillId: number
+      skillName: string
+      userProficiencies: Array<{
+        userId: string
+        displayName: string
+        proficiencyLevel: string
+      }>
+    }>
+
+    // ユーザー一覧を取得（組織内の全ユーザー）
+    const usersData = await $fetch('/api/users', {
+      method: 'GET',
+      query: {
+        organization: currentOrganization.value
+      }
+    })
+
+    organizationUsers.value = (usersData || []).map((u: any) => ({
+      id: u.id || u.uuid,
+      displayName: u.displayName || u.user_metadata?.display_name || u.email?.split('@')[0] || 'Unknown'
+    }))
+  } catch (error) {
+    console.error('Error loading proficiencies:', error)
+    proficiencies.value = []
+    organizationUsers.value = []
+  }
+}
+
+// 習熟度レベルを取得
+const getProficiencyLevel = (skillId: number, userId: string): string => {
+  const skillData = proficiencies.value.find(p => p.skillId === skillId)
+  if (!skillData) return 'none'
+  
+  const userProf = skillData.userProficiencies.find(up => up.userId === userId)
+  const level = userProf?.proficiencyLevel || 'none'
+  
+  // デバッグ用ログ（double_circleの場合のみ）
+  if (level === 'double_circle') {
+    console.log('[SkillMap] Found double_circle:', {
+      skillId,
+      userId,
+      skillData,
+      userProf,
+      level
+    })
+  }
+  
+  return level
+}
+
+// 習熟度シンボルを取得
+const getProficiencySymbol = (level: string): string => {
+  switch (level) {
+    case 'double_circle':
+      return '◎'
+    case 'circle':
+      return '○'
+    case 'triangle':
+      return '△'
+    case 'none':
+    default:
+      return '×'
+  }
+}
+
+// 習熟度クラスを取得
+const getProficiencyClass = (level: string): string => {
+  switch (level) {
+    case 'double_circle':
+      return 'double-circle'
+    case 'circle':
+      return 'circle'
+    case 'triangle':
+      return 'triangle'
+    case 'none':
+    default:
+      return 'none'
+  }
+}
+
+// スキルを追加
+const addSkill = async () => {
+  if (!newSkillName.value.trim() || !currentOrganization.value || !supabase) {
+    alert('スキル名を入力してください')
+    return
+  }
+
+  try {
+    isAddingSkill.value = true
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      alert('ログインが必要です')
+      return
+    }
+
+    await $fetch('/api/skills', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: {
+        name: newSkillName.value.trim(),
+        organization: currentOrganization.value
+      }
+    })
+
+    newSkillName.value = ''
+    showAddSkillModal.value = false
+    await loadSkills()
+    await loadProficiencies()
+    alert('スキルを追加しました')
+  } catch (error: any) {
+    console.error('Error adding skill:', error)
+    alert('スキルの追加に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
+  } finally {
+    isAddingSkill.value = false
+  }
+}
+
+// スキルを削除
+const deleteSkill = async (skillId: number) => {
+  if (!confirm('このスキルを削除してもよろしいですか？')) {
+    return
+  }
+
+  if (!supabase) {
+    alert('Supabase接続が利用できません')
+    return
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      alert('ログインが必要です')
+      return
+    }
+
+    await $fetch(`/api/skills/${skillId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`
+      }
+    })
+
+    await loadSkills()
+    await loadProficiencies()
+    alert('スキルを削除しました')
+  } catch (error: any) {
+    console.error('Error deleting skill:', error)
+    alert('スキルの削除に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
+  }
+}
+
+// コンポーネントマウント時にデータを取得
 onMounted(async () => {
   await loadCurrentUser()
-  // 組織管理者の場合のみユーザー一覧を読み込む
-  if (currentUser.value) {
-    const userRole = currentUser.value.user_metadata?.role
-    if (userRole === 'org_admin') {
-      loadUsers()
-    }
+  if (currentOrganization.value) {
+    await loadSkills()
+    await loadProficiencies()
   }
   document.addEventListener('click', handleClickOutside)
 })
@@ -654,7 +774,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.organization-page {
+.skill-map-page {
   min-height: 100vh;
   background: #f5f5f5;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -769,54 +889,6 @@ onUnmounted(() => {
 
 .user-profile:hover {
   background: #f5f5f5;
-}
-
-/* ユーザーメニュー */
-.user-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  min-width: 180px;
-  z-index: 1000;
-  overflow: hidden;
-}
-
-.menu-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: none;
-  background: white;
-  color: #333;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-  text-align: left;
-}
-
-.menu-item:hover {
-  background: #f5f5f5;
-}
-
-.menu-item svg {
-  flex-shrink: 0;
-  color: #666;
-}
-
-.menu-link {
-  text-decoration: none;
-  color: #3b82f6;
-  border-top: 1px solid #e0e0e0;
-}
-
-.menu-link:hover {
-  background: #f0f7ff;
-  color: #2563eb;
 }
 
 /* ユーザーメニュー */
@@ -983,7 +1055,7 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.user-management {
+.skill-map-content {
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -1026,67 +1098,280 @@ onUnmounted(() => {
   height: 16px;
 }
 
-/* 新規ユーザー作成セクション */
-.create-user-section {
+/* スキルマップテーブル */
+.skill-map-table-container {
   background: white;
   border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 30px;
+  padding: 24px;
+  overflow-x: auto;
   border: 1px solid #e0e0e0;
 }
 
-.section-toggle {
+.skill-map-table {
   width: 100%;
-  padding: 12px;
-  background: none;
-  border: none;
+  border-collapse: collapse;
+  min-width: 800px;
+}
+
+.skill-map-table thead {
+  background: #f9fafb;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.skill-map-table th {
+  padding: 16px;
   text-align: left;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: #333;
-  cursor: pointer;
+  border-bottom: 2px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+.skill-column {
+  min-width: 300px;
+  position: sticky;
+  left: 0;
+  background: #f9fafb;
+  z-index: 5;
+}
+
+.user-column {
+  min-width: 120px;
+  text-align: center;
+}
+
+.skill-map-table tbody tr {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.skill-map-table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.skill-cell {
+  padding: 16px;
+  position: sticky;
+  left: 0;
+  background: white;
+  z-index: 1;
+}
+
+.skill-row:hover .skill-cell {
+  background: #f9fafb;
+}
+
+.skill-name-wrapper {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.section-toggle:hover {
-  background: #f9fafb;
+.skill-name {
+  font-size: 14px;
+  color: #333;
+  flex: 1;
+}
+
+.skill-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.skill-action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-btn {
+  background: #dbeafe;
+  color: #3b82f6;
+}
+
+.add-btn:hover {
+  background: #bfdbfe;
+}
+
+.remove-btn {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.remove-btn:hover {
+  background: #fecaca;
+}
+
+.proficiency-cell {
+  padding: 16px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.proficiency-symbol {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  border-radius: 50%;
+  text-align: center;
+}
+
+.proficiency-symbol.none {
+  color: #999;
+}
+
+.proficiency-symbol.triangle {
+  color: #f59e0b;
+}
+
+.proficiency-symbol.circle {
+  color: #3b82f6;
+}
+
+.proficiency-symbol.double-circle {
+  color: #10b981;
+}
+
+
+.loading-cell,
+.empty-cell {
+  padding: 40px;
+  text-align: center;
+  color: #999;
+}
+
+.empty-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.add-skill-row {
+  border-top: 2px dashed #e0e0e0;
+}
+
+.add-skill-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 2px dashed #9333ea;
+  background: transparent;
   border-radius: 8px;
+  cursor: pointer;
+  color: #9333ea;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  width: 100%;
+  justify-content: center;
 }
 
-.create-form {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #e0e0e0;
+.add-skill-btn:hover {
+  background: #f3e8ff;
+  border-color: #7e22ce;
+  color: #7e22ce;
 }
 
-.form-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 16px;
+.add-skill-btn svg {
+  flex-shrink: 0;
+}
+
+/* モーダル */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 500px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #333;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.close-btn:hover {
+  background: #f0f0f0;
+}
+
+.modal-body {
   margin-bottom: 20px;
 }
 
 .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-bottom: 16px;
 }
 
-.form-group label {
-  font-size: 12px;
-  color: #666;
-  font-weight: 500;
+.form-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.required {
+  color: #ef4444;
 }
 
 .form-input {
-  padding: 10px 12px;
+  width: 100%;
+  padding: 12px;
   border: 1px solid #e0e0e0;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 14px;
-  background: white;
-  transition: border-color 0.2s;
+  font-family: inherit;
+  box-sizing: border-box;
 }
 
 .form-input:focus {
@@ -1094,120 +1379,44 @@ onUnmounted(() => {
   border-color: #9333ea;
 }
 
-.form-input.readonly {
-  background: #f9fafb;
-  color: #666;
-  cursor: not-allowed;
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
-.create-btn-form {
-  padding: 12px 24px;
-  background: #3b82f6;
-  color: white;
+.btn-cancel,
+.btn-confirm {
+  padding: 10px 24px;
   border: none;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
-.create-btn-form:hover:not(:disabled) {
-  background: #2563eb;
+.btn-cancel {
+  background: #f5f5f5;
+  color: #666;
 }
 
-.create-btn-form:disabled {
+.btn-cancel:hover {
+  background: #e0e0e0;
+}
+
+.btn-confirm {
+  background: #9333ea;
+  color: white;
+}
+
+.btn-confirm:hover:not(:disabled) {
+  background: #7e22ce;
+}
+
+.btn-confirm:disabled {
   background: #ccc;
   cursor: not-allowed;
-}
-
-/* ユーザー一覧セクション */
-.user-list-section {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #e0e0e0;
-}
-
-.section-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #333;
-  margin: 0 0 20px 0;
-}
-
-.table-container {
-  overflow-x: auto;
-}
-
-.user-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.user-table thead {
-  background: #f9fafb;
-}
-
-.user-table th {
-  padding: 12px;
-  text-align: left;
-  font-size: 14px;
-  font-weight: 600;
-  color: #666;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.user-table td {
-  padding: 12px;
-  font-size: 14px;
-  color: #333;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.user-table tbody tr:hover {
-  background: #f9fafb;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status-badge.active {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.status-badge.inactive {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.edit-btn {
-  padding: 6px 16px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.edit-btn:hover {
-  background: #2563eb;
-}
-
-.loading-cell,
-.empty-cell {
-  text-align: center;
-  padding: 40px;
-  color: #666;
 }
 </style>
 

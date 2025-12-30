@@ -235,6 +235,64 @@
                   </option>
                 </select>
               </div>
+              <div class="form-group">
+                <label class="form-label">紐付けるスキル（任意、複数選択可）</label>
+                <div class="skills-selection-container">
+                  <div 
+                    v-for="(selectedSkill, index) in testData.selectedSkills" 
+                    :key="`selected-${index}`"
+                    class="skill-selection-row"
+                  >
+                    <select 
+                      v-model="selectedSkill.skillId" 
+                      class="form-select skill-select"
+                      @change="onSkillSelectChange(index)"
+                    >
+                      <option value="">スキルを選択してください</option>
+                      <option 
+                        v-for="skill in availableSkills(index)" 
+                        :key="skill.id" 
+                        :value="skill.id"
+                      >
+                        {{ skill.name }}
+                      </option>
+                    </select>
+                    <select 
+                      v-if="selectedSkill.skillId"
+                      v-model="selectedSkill.proficiencyLevel"
+                      class="form-select proficiency-select"
+                    >
+                      <option value="triangle">△（初級）</option>
+                      <option value="circle">○（中級）</option>
+                      <option value="double_circle">◎（上級）</option>
+                    </select>
+                    <button 
+                      v-if="testData.selectedSkills.length > 1"
+                      class="remove-skill-btn" 
+                      @click="removeSkillSelection(index)"
+                      title="スキルを削除"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <button 
+                    class="add-skill-selection-btn" 
+                    @click="addSkillSelection"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="16"/>
+                      <line x1="8" y1="12" x2="16" y2="12"/>
+                    </svg>
+                    スキルを追加
+                  </button>
+                </div>
+                <p class="hint-text">テスト合格時に習熟度を更新するスキルを選択できます。複数選択可能です。</p>
+              </div>
             </div>
           </div>
 
@@ -408,6 +466,12 @@ const videos = ref<Array<{ id: number; title: string }>>([])
 // コースリスト
 const courses = ref<Array<{ id: number; name: string }>>([])
 
+// スキルリスト
+const skills = ref<Array<{
+  id: number
+  name: string
+}>>([])
+
 // 紐付けタイプ（'video' または 'course'）
 const linkType = ref<'video' | 'course'>('video')
 
@@ -419,6 +483,10 @@ const testData = ref<{
   title: string
   videoId: string | number
   courseId: string | number
+  selectedSkills: Array<{
+    skillId: number | string
+    proficiencyLevel: 'triangle' | 'circle' | 'double_circle'
+  }>
   questions: Array<{
     id: number
     text: string
@@ -519,12 +587,67 @@ const loadCourses = async () => {
   }
 }
 
+// スキルリストを取得
+const loadSkills = async () => {
+  try {
+    if (!currentOrganization.value) return
+    
+    const data = await $fetch('/api/skills', {
+      method: 'GET',
+      query: {
+        organization: currentOrganization.value
+      }
+    })
+    skills.value = (data || []).map((s: any) => ({
+      id: s.id,
+      name: s.name
+    }))
+  } catch (error) {
+    console.error('Error loading skills:', error)
+    skills.value = []
+  }
+}
+
 // 紐付けタイプが変更されたときの処理
 const onLinkTypeChange = () => {
   if (!testData.value) return
   // タイプが変更されたら、選択をリセット
   testData.value.videoId = ''
   testData.value.courseId = ''
+}
+
+// 利用可能なスキルを取得（既に選択されているスキルを除外）
+const availableSkills = (currentIndex: number) => {
+  if (!testData.value) return []
+  const selectedIds = testData.value.selectedSkills
+    .map((s, idx) => idx !== currentIndex ? s.skillId : null)
+    .filter(id => id !== null && id !== '')
+  return skills.value.filter(skill => !selectedIds.includes(skill.id))
+}
+
+// スキル選択が変更されたときの処理
+const onSkillSelectChange = (index: number) => {
+  if (!testData.value) return
+  const selectedSkill = testData.value.selectedSkills[index]
+  if (selectedSkill && selectedSkill.skillId && !selectedSkill.proficiencyLevel) {
+    // スキルが選択された場合、デフォルトの習熟度レベルを設定
+    selectedSkill.proficiencyLevel = 'circle'
+  }
+}
+
+// スキル選択を追加
+const addSkillSelection = () => {
+  if (!testData.value) return
+  testData.value.selectedSkills.push({
+    skillId: '',
+    proficiencyLevel: 'circle'
+  })
+}
+
+// スキル選択を削除
+const removeSkillSelection = (index: number) => {
+  if (!testData.value) return
+  testData.value.selectedSkills.splice(index, 1)
 }
 
 // テストデータを取得
@@ -547,10 +670,41 @@ const loadTestData = async () => {
       linkType.value = 'course'
     }
     
+    // スキル情報を処理（後方互換性のため、skills配列またはskillIdをサポート）
+    const selectedSkills: Array<{
+      skillId: number | string
+      proficiencyLevel: 'triangle' | 'circle' | 'double_circle'
+    }> = []
+    
+    if (data.skills && Array.isArray(data.skills) && data.skills.length > 0) {
+      // 新しい形式（複数スキル）
+      data.skills.forEach((skill: any) => {
+        selectedSkills.push({
+          skillId: skill.skillId,
+          proficiencyLevel: skill.proficiencyLevelOnPass || 'circle'
+        })
+      })
+    } else if (data.skillId) {
+      // 古い形式（単一スキル、後方互換性）
+      selectedSkills.push({
+        skillId: data.skillId,
+        proficiencyLevel: data.proficiencyLevelOnPass || 'circle'
+      })
+    }
+    
+    // スキルが選択されていない場合、空の選択行を1つ追加
+    if (selectedSkills.length === 0) {
+      selectedSkills.push({
+        skillId: '',
+        proficiencyLevel: 'circle'
+      })
+    }
+    
     testData.value = {
       title: data.title,
       videoId: data.videoId || '',
       courseId: data.courseId || '',
+      selectedSkills: selectedSkills,
       questions: data.questions.map((q: any) => {
         questionIdCounter = Math.max(questionIdCounter, q.id + 1)
         return {
@@ -652,6 +806,21 @@ const handleSave = async () => {
     return
   }
   
+  // 選択されたスキルすべてに習熟度レベルが設定されているか確認
+  for (const selectedSkill of testData.value.selectedSkills) {
+    if (selectedSkill.skillId && !selectedSkill.proficiencyLevel) {
+      alert('選択したスキルすべてに習熟度レベルを設定してください')
+      return
+    }
+    if (!selectedSkill.skillId && selectedSkill.proficiencyLevel) {
+      alert('スキルが選択されていない項目があります')
+      return
+    }
+  }
+  
+  // 空のスキル選択を除外
+  testData.value.selectedSkills = testData.value.selectedSkills.filter(s => s.skillId)
+  
   if (testData.value.questions.length === 0) {
     alert('問いを少なくとも1つ追加してください')
     return
@@ -713,6 +882,12 @@ const handleSave = async () => {
         title: testData.value.title,
         videoId: linkType.value === 'video' ? testData.value.videoId : null,
         courseId: linkType.value === 'course' ? testData.value.courseId : null,
+        skills: testData.value.selectedSkills
+          .filter(s => s.skillId)
+          .map(s => ({
+            skillId: s.skillId,
+            proficiencyLevelOnPass: s.proficiencyLevel
+          })),
         questions: testData.value.questions.map(q => ({
           text: q.text,
           type: q.type,
@@ -783,6 +958,7 @@ onMounted(async () => {
   await loadCurrentUser()
   await loadVideos()
   await loadCourses()
+  await loadSkills()
   await loadTestData()
   document.addEventListener('click', handleClickOutside)
 })
@@ -1430,6 +1606,144 @@ onUnmounted(() => {
 .btn-save-large:disabled {
   background: #ccc;
   cursor: not-allowed;
+}
+
+/* スキル選択リスト */
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.skill-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.skill-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.skill-checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.proficiency-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 26px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.proficiency-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  white-space: nowrap;
+}
+
+.proficiency-select {
+  padding: 6px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: white;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.proficiency-select:focus {
+  outline: none;
+  border-color: #9333ea;
+}
+
+/* スキル選択コンテナ */
+.skills-selection-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skill-selection-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.skill-select {
+  flex: 1;
+}
+
+.proficiency-select {
+  min-width: 180px;
+}
+
+.remove-skill-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e0e0e0;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #dc2626;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.remove-skill-btn:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
+}
+
+.add-skill-selection-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 2px dashed #9333ea;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #9333ea;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: fit-content;
+}
+
+.add-skill-selection-btn:hover {
+  background: #f3e8ff;
+  border-color: #7e22ce;
+  color: #7e22ce;
+}
+
+.add-skill-selection-btn svg {
+  flex-shrink: 0;
 }
 </style>
 

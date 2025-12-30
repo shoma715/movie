@@ -431,7 +431,7 @@ const submitTest = async () => {
       elapsedTime: elapsedTime.value
     }
 
-    await $fetch(`/api/tests/${testData.value.id}/submit`, {
+    const response = await $fetch(`/api/tests/${testData.value.id}/submit`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`
@@ -439,7 +439,8 @@ const submitTest = async () => {
       body: submissionData
     })
 
-    console.log('[TestTake] Test submitted successfully')
+    console.log('[TestTake] Test submitted successfully:', response)
+    console.log('[TestTake] Score:', score.value, '/', maxScore.value, '=', score.value === maxScore.value ? 'PERFECT' : 'NOT PERFECT')
     isCompleted.value = true
   } catch (error: any) {
     console.error('Error submitting test:', error)

@@ -112,6 +112,17 @@ export default defineEventHandler(async (event) => {
       courseTitle = course?.name || '不明なコース'
     }
 
+    // テストに紐づくスキルを取得
+    const { data: testSkills } = await supabaseAdmin
+      .from('test_skills')
+      .select('skill_id, proficiency_level_on_pass')
+      .eq('test_id', test.id)
+
+    const skills = (testSkills || []).map(ts => ({
+      skillId: ts.skill_id,
+      proficiencyLevelOnPass: ts.proficiency_level_on_pass
+    }))
+
     const result = {
       id: test.id,
       title: test.title,
@@ -119,6 +130,10 @@ export default defineEventHandler(async (event) => {
       videoTitle: videoTitle,
       courseId: test.course_id,
       courseTitle: courseTitle,
+      skills: skills,
+      // 後方互換性のため、skillIdとproficiencyLevelOnPassも残す（最初のスキルのみ）
+      skillId: skills.length > 0 ? skills[0].skillId : test.skill_id,
+      proficiencyLevelOnPass: skills.length > 0 ? skills[0].proficiencyLevelOnPass : test.proficiency_level_on_pass,
       organization: test.organization,
       createdBy: test.created_by,
       createdAt: test.created_at,

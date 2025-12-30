@@ -58,7 +58,7 @@ export default defineEventHandler(async (event) => {
 
     // リクエストボディを取得
     const body = await readBody(event)
-    const { title, videoId, courseId, questions } = body
+    const { title, videoId, courseId, skills, questions } = body
 
     // バリデーション
     if (!title || !questions || questions.length === 0) {
@@ -100,14 +100,16 @@ export default defineEventHandler(async (event) => {
 
     // トランザクション的にテストを更新
     // 1. テスト基本情報を更新
+    const updateData: any = {
+      title,
+      video_id: videoId || null,
+      course_id: courseId || null,
+      updated_at: new Date().toISOString()
+    }
+
     const { error: testUpdateError } = await supabaseAdmin
       .from('tests')
-      .update({
-        title,
-        video_id: videoId || null,
-        course_id: courseId || null,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', testId)
 
     if (testUpdateError) {
@@ -174,6 +176,42 @@ export default defineEventHandler(async (event) => {
             statusCode: 500,
             message: '選択肢の作成に失敗しました'
           })
+        }
+      }
+    }
+
+    // 4. テストスキルの紐づけを更新
+    // 既存のtest_skillsを削除
+    const { error: deleteTestSkillsError } = await supabaseAdmin
+      .from('test_skills')
+      .delete()
+      .eq('test_id', testId)
+
+    if (deleteTestSkillsError) {
+      console.error('[API/Tests/[id].PUT] Error deleting test_skills:', deleteTestSkillsError)
+      // エラーがあっても続行（部分的な保存を許可）
+    }
+
+    // 新しいスキルを紐づけ（複数可能）
+    if (skills && Array.isArray(skills) && skills.length > 0) {
+      for (const skillData of skills) {
+        const { skillId, proficiencyLevelOnPass } = skillData
+        if (skillId && proficiencyLevelOnPass) {
+          const skillIdNum = parseInt(String(skillId), 10)
+          if (!isNaN(skillIdNum) && ['triangle', 'circle', 'double_circle'].includes(proficiencyLevelOnPass)) {
+            const { error: testSkillError } = await supabaseAdmin
+              .from('test_skills')
+              .insert({
+                test_id: testId,
+                skill_id: skillIdNum,
+                proficiency_level_on_pass: proficiencyLevelOnPass
+              })
+
+            if (testSkillError) {
+              console.error('[API/Tests/[id].PUT] Error creating test_skill:', testSkillError)
+              // エラーがあっても続行（部分的な保存を許可）
+            }
+          }
         }
       }
     }

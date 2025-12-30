@@ -1,13 +1,12 @@
 export default defineEventHandler(async (event) => {
   try {
-    const id = getRouterParam(event, 'id')
+    const query = getQuery(event)
+    const organization = query.organization as string | undefined
 
-    console.log('[API/Videos] DELETE video request received:', { id })
-
-    if (!id) {
+    if (!organization) {
       throw createError({
         statusCode: 400,
-        message: '動画IDは必須です'
+        message: '組織名が指定されていません'
       })
     }
 
@@ -18,7 +17,7 @@ export default defineEventHandler(async (event) => {
     if (!supabaseServiceKey || !supabaseUrl) {
       throw createError({
         statusCode: 500,
-        message: 'Supabase設定が不完全です。'
+        message: 'Supabase設定が不完全です'
       })
     }
 
@@ -30,36 +29,31 @@ export default defineEventHandler(async (event) => {
       }
     })
 
-    // 動画を削除
-    const { error } = await supabaseAdmin
-      .from('videos')
-      .delete()
-      .eq('id', parseInt(id))
+    const { data: skills, error } = await supabaseAdmin
+      .from('skills')
+      .select('*')
+      .eq('organization', organization)
+      .order('created_at', { ascending: true })
 
     if (error) {
-      console.error('[API/Videos] Error deleting video:', error)
-      
+      console.error('Error fetching skills:', error)
       throw createError({
         statusCode: 500,
-        message: `動画の削除に失敗しました: ${error.message || 'Unknown error'}`
+        message: 'スキルの取得に失敗しました'
       })
     }
 
-    console.log('[API/Videos] Video deleted successfully')
-
-    return { success: true }
+    return skills || []
   } catch (error: any) {
-    console.error('[API/Videos] Error in video deletion API:', error)
+    console.error('Error in skills GET API:', error)
     if (error.statusCode) {
       throw error
     }
     throw createError({
       statusCode: 500,
-      message: error.message || '動画の削除に失敗しました'
+      message: error.message || 'スキルの取得に失敗しました'
     })
   }
 })
-
-
 
 

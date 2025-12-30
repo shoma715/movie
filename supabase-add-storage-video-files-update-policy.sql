@@ -7,3 +7,4 @@ CREATE POLICY "Users can update storage video files"
   USING (auth.role() = 'authenticated');
 
 
+

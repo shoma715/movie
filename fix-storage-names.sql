@@ -35,3 +35,4 @@ ORDER BY created_at DESC;
 -- 注意: このSQLを実行する前に、バックアップを取ることをお勧めします
 
 
+

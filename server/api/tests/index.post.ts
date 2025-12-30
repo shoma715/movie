@@ -49,9 +49,10 @@ export default defineEventHandler(async (event) => {
 
     // リクエストボディを取得
     const body = await readBody(event)
-    const { title, videoId, courseId, questions } = body
+    const { title, videoId, courseId, skills, questions } = body
 
     console.log('[API/Tests.POST] Request body:', { title, videoId, courseId, questionsCount: questions?.length })
+    console.log('[API/Tests.POST] Skills from request:', JSON.stringify(skills, null, 2))
 
     // バリデーション
     if (!title || !questions || questions.length === 0) {
@@ -204,6 +205,58 @@ export default defineEventHandler(async (event) => {
           })
         }
       }
+    }
+
+    // 4. スキルを紐づけ（複数可能）
+    console.log('[API/Tests.POST] Processing skills:', JSON.stringify(skills, null, 2))
+    if (skills && Array.isArray(skills) && skills.length > 0) {
+      console.log('[API/Tests.POST] Found', skills.length, 'skills to link')
+      for (const skillData of skills) {
+        const { skillId, proficiencyLevelOnPass } = skillData
+        console.log('[API/Tests.POST] Processing skill:', { skillId, proficiencyLevelOnPass })
+        
+        if (skillId && proficiencyLevelOnPass) {
+          const skillIdNum = parseInt(String(skillId), 10)
+          console.log('[API/Tests.POST] Validating skill:', {
+            skillId,
+            skillIdNum,
+            proficiencyLevelOnPass,
+            proficiencyLevelOnPassLength: proficiencyLevelOnPass?.length,
+            isValidLevel: ['triangle', 'circle', 'double_circle'].includes(proficiencyLevelOnPass)
+          })
+          
+          if (!isNaN(skillIdNum) && ['triangle', 'circle', 'double_circle'].includes(proficiencyLevelOnPass)) {
+            console.log('[API/Tests.POST] Inserting test_skill:', {
+              test_id: test.id,
+              skill_id: skillIdNum,
+              proficiency_level_on_pass: proficiencyLevelOnPass
+            })
+            
+            const { data: insertedData, error: testSkillError } = await supabaseAdmin
+              .from('test_skills')
+              .insert({
+                test_id: test.id,
+                skill_id: skillIdNum,
+                proficiency_level_on_pass: proficiencyLevelOnPass
+              })
+              .select()
+
+            if (testSkillError) {
+              console.error('[API/Tests.POST] Error creating test_skill:', testSkillError)
+              console.error('[API/Tests.POST] Error details:', JSON.stringify(testSkillError, null, 2))
+              // エラーがあっても続行（部分的な保存を許可）
+            } else {
+              console.log('[API/Tests.POST] Successfully created test_skill:', insertedData)
+            }
+          } else {
+            console.warn('[API/Tests.POST] Invalid skill data:', { skillId, skillIdNum, proficiencyLevelOnPass })
+          }
+        } else {
+          console.warn('[API/Tests.POST] Missing skill data:', { skillId, proficiencyLevelOnPass })
+        }
+      }
+    } else {
+      console.log('[API/Tests.POST] No skills to link')
     }
 
     console.log('[API/Tests.POST] Test created successfully:', test.id)
