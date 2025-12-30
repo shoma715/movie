@@ -2,11 +2,14 @@
 CREATE TABLE IF NOT EXISTS public.tests (
   id BIGSERIAL PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
-  video_id BIGINT NOT NULL,
+  video_id BIGINT,
+  course_id BIGINT REFERENCES public.courses(id) ON DELETE CASCADE,
   organization VARCHAR(100),
   created_by UUID NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  -- 動画またはコースのどちらか一方が必須
+  CHECK ((video_id IS NOT NULL AND course_id IS NULL) OR (video_id IS NULL AND course_id IS NOT NULL))
 );
 
 -- 問題テーブルを作成
@@ -57,6 +60,7 @@ CREATE TABLE IF NOT EXISTS public.test_answers (
 
 -- インデックスを作成（パフォーマンス向上のため）
 CREATE INDEX IF NOT EXISTS idx_tests_video_id ON public.tests(video_id);
+CREATE INDEX IF NOT EXISTS idx_tests_course_id ON public.tests(course_id);
 CREATE INDEX IF NOT EXISTS idx_tests_organization ON public.tests(organization);
 CREATE INDEX IF NOT EXISTS idx_tests_created_by ON public.tests(created_by);
 CREATE INDEX IF NOT EXISTS idx_test_questions_test_id ON public.test_questions(test_id);
@@ -250,7 +254,8 @@ COMMENT ON TABLE public.test_attempts IS 'テスト受験履歴テーブル';
 COMMENT ON TABLE public.test_answers IS 'テスト回答テーブル';
 
 COMMENT ON COLUMN public.tests.title IS 'テストタイトル';
-COMMENT ON COLUMN public.tests.video_id IS '紐付ける動画ID';
+COMMENT ON COLUMN public.tests.video_id IS '紐付ける動画ID（コースIDがNULLの場合のみ必須）';
+COMMENT ON COLUMN public.tests.course_id IS '紐付けるコースID（動画IDがNULLの場合のみ必須）';
 COMMENT ON COLUMN public.tests.organization IS '組織名';
 COMMENT ON COLUMN public.tests.created_by IS '作成者ユーザーID';
 
@@ -275,6 +280,30 @@ COMMENT ON COLUMN public.test_attempts.is_completed IS '完了フラグ';
 COMMENT ON COLUMN public.test_answers.attempt_id IS '受験履歴ID';
 COMMENT ON COLUMN public.test_answers.question_id IS '問題ID';
 COMMENT ON COLUMN public.test_answers.choice_id IS '選択肢ID';
+
+-- 既存のテーブルを更新するためのマイグレーション（既にテーブルが存在する場合）
+-- video_idをNULL許可に変更
+ALTER TABLE public.tests ALTER COLUMN video_id DROP NOT NULL;
+
+-- course_idカラムを追加
+ALTER TABLE public.tests ADD COLUMN IF NOT EXISTS course_id BIGINT REFERENCES public.courses(id) ON DELETE CASCADE;
+
+-- チェック制約を追加（動画またはコースのどちらか一方が必須）
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'tests_video_or_course_check'
+  ) THEN
+    ALTER TABLE public.tests 
+    ADD CONSTRAINT tests_video_or_course_check 
+    CHECK ((video_id IS NOT NULL AND course_id IS NULL) OR (video_id IS NULL AND course_id IS NOT NULL));
+  END IF;
+END $$;
+
+-- course_idのインデックスを作成
+CREATE INDEX IF NOT EXISTS idx_tests_course_id ON public.tests(course_id);
+
 
 
 

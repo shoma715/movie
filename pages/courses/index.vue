@@ -355,6 +355,32 @@
                 </span>
               </div>
 
+              <!-- テストボタン -->
+              <div v-if="course.test" class="course-test-section">
+                <button 
+                  v-if="isOrgAdmin"
+                  class="btn-test-results"
+                  @click="goToTestResults(course.test.id)"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  テスト結果
+                </button>
+                <button 
+                  v-else
+                  class="btn-take-test"
+                  @click="goToTakeTest(course.test.id)"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  テストを受ける
+                </button>
+              </div>
+
               <!-- 動画一覧（横スクロール） -->
               <div class="course-videos-scroll">
                 <div class="course-videos-list">
@@ -552,6 +578,10 @@ const courses = ref<Array<{
     total: number
     percentage: number
   }
+  test: {
+    id: number
+    title: string
+  } | null
 }>>([])
 
 // 視聴済み動画IDのセット（進捗計算用）
@@ -857,6 +887,16 @@ const removeVideoFromCourse = async (courseId: number, videoId: number, contentI
 // 動画ページに遷移
 const goToVideo = (videoId: number) => {
   router.push(`/videos/${videoId}`)
+}
+
+// テスト受験ページに遷移
+const goToTakeTest = (testId: number) => {
+  router.push(`/tests/take/${testId}`)
+}
+
+// テスト結果ページに遷移
+const goToTestResults = (testId: number) => {
+  router.push(`/tests/${testId}/results`)
 }
 
 const navigateToEdit = () => {
@@ -1345,6 +1385,44 @@ onUnmounted(() => {
   color: #666;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* テストボタン */
+.course-test-section {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 12px;
+}
+
+.btn-take-test, .btn-test-results {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-take-test {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-take-test:hover {
+  background: #2563eb;
+}
+
+.btn-test-results {
+  background: #9333ea;
+  color: white;
+}
+
+.btn-test-results:hover {
+  background: #7e22ce;
 }
 
 /* 動画一覧（横スクロール） */

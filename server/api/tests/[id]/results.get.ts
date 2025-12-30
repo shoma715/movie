@@ -52,25 +52,25 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 動画IDを取得（URLパラメータ）
-    const videoId = parseInt(event.context.params?.id || '0')
-    console.log('[API/Tests/Results] Video ID from URL:', videoId)
+    // テストIDを取得（URLパラメータ）
+    const testIdParam = parseInt(event.context.params?.id || '0')
+    console.log('[API/Tests/Results] ID from URL:', testIdParam)
     
-    if (!videoId) {
+    if (!testIdParam) {
       throw createError({
         statusCode: 400,
-        message: '無効な動画IDです'
+        message: '無効なテストIDです'
       })
     }
 
-    // 動画IDに紐づくテスト情報を取得
-    console.log('[API/Tests/Results] Fetching test for video ID:', videoId)
+    // テストIDでテスト情報を取得
+    console.log('[API/Tests/Results] Fetching test for ID:', testIdParam)
     console.log('[API/Tests/Results] User organization:', userOrganization)
     
     const { data: test, error: testError } = await supabaseAdmin
       .from('tests')
       .select('*')
-      .eq('video_id', videoId)
+      .eq('id', testIdParam)
       .eq('organization', userOrganization)
       .single()
     
@@ -85,14 +85,30 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 動画情報を別途取得
-    const { data: video } = await supabaseAdmin
-      .from('videos')
-      .select('title')
-      .eq('id', videoId)
-      .single()
-    
-    console.log('[API/Tests/Results] Video data:', video)
+    // 動画情報を取得（video_idがある場合）
+    let video = null
+    let videoId = test.video_id
+    if (test.video_id) {
+      const { data: videoData } = await supabaseAdmin
+        .from('videos')
+        .select('title')
+        .eq('id', test.video_id)
+        .single()
+      video = videoData
+      console.log('[API/Tests/Results] Video data:', video)
+    }
+
+    // コース情報を取得（course_idがある場合）
+    let course = null
+    if (test.course_id) {
+      const { data: courseData } = await supabaseAdmin
+        .from('courses')
+        .select('name')
+        .eq('id', test.course_id)
+        .single()
+      course = courseData
+      console.log('[API/Tests/Results] Course data:', course)
+    }
 
     // テストが組織に属しているか確認
     if (test.organization !== userOrganization) {
@@ -135,30 +151,34 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    // 動画視聴履歴を取得
-    console.log('[API/Tests/Results] Fetching watch history for video ID:', videoId)
-    const { data: watchHistory, error: watchHistoryError } = await supabaseAdmin
-      .from('video_watch_history')
-      .select('user_id, completed_at')
-      .eq('video_id', videoId)
-      .eq('is_completed', true)
-      .not('completed_at', 'is', null)
-      .in('user_id', organizationUserIds)
-      .order('completed_at', { ascending: false })
-    
-    console.log('[API/Tests/Results] Watch history found:', watchHistory?.length || 0)
-    console.log('[API/Tests/Results] Watch history error:', watchHistoryError)
-    
-    // ユーザーごとの動画視聴完了日時をマップ
-    const userWatchCompleted = new Map<string, string>()
-    watchHistory?.forEach(history => {
-      if (history.completed_at && (!userWatchCompleted.has(history.user_id) || 
-          new Date(history.completed_at) > new Date(userWatchCompleted.get(history.user_id) || ''))) {
-        userWatchCompleted.set(history.user_id, history.completed_at)
-      }
-    })
-    
-    console.log('[API/Tests/Results] Watch history mapped for', userWatchCompleted.size, 'users')
+    // 動画視聴履歴を取得（動画IDがある場合のみ）
+    let userWatchCompleted = new Map<string, string>()
+    if (videoId) {
+      console.log('[API/Tests/Results] Fetching watch history for video ID:', videoId)
+      const { data: watchHistory, error: watchHistoryError } = await supabaseAdmin
+        .from('video_watch_history')
+        .select('user_id, completed_at')
+        .eq('video_id', videoId)
+        .eq('is_completed', true)
+        .not('completed_at', 'is', null)
+        .in('user_id', organizationUserIds)
+        .order('completed_at', { ascending: false })
+      
+      console.log('[API/Tests/Results] Watch history found:', watchHistory?.length || 0)
+      console.log('[API/Tests/Results] Watch history error:', watchHistoryError)
+      
+      // ユーザーごとの動画視聴完了日時をマップ
+      watchHistory?.forEach(history => {
+        if (history.completed_at && (!userWatchCompleted.has(history.user_id) || 
+            new Date(history.completed_at) > new Date(userWatchCompleted.get(history.user_id) || ''))) {
+          userWatchCompleted.set(history.user_id, history.completed_at)
+        }
+      })
+      
+      console.log('[API/Tests/Results] Watch history mapped for', userWatchCompleted.size, 'users')
+    } else {
+      console.log('[API/Tests/Results] No video ID, skipping watch history')
+    }
 
     // ユーザーごとに集計
     const userResults = new Map<string, {
@@ -271,8 +291,10 @@ export default defineEventHandler(async (event) => {
       test: {
         id: test.id,
         title: test.title,
-        videoTitle: video?.title || '不明な動画',
-        videoId: test.video_id
+        videoTitle: video?.title || null,
+        videoId: test.video_id,
+        courseTitle: course?.name || null,
+        courseId: test.course_id
       },
       statistics: {
         totalUsers: results.length,

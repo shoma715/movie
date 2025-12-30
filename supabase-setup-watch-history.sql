@@ -66,3 +66,4 @@ COMMENT ON COLUMN public.video_watch_history.is_completed IS '視聴完了フラ
 
 
 
+

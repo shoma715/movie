@@ -70,18 +70,35 @@ export default defineEventHandler(async (event) => {
           .select('*', { count: 'exact', head: true })
           .eq('test_id', test.id)
 
-        // 動画情報を取得
-        const { data: video, error: videoError } = await supabaseAdmin
-          .from('videos')
-          .select('title')
-          .eq('id', test.video_id)
-          .single()
+        // 動画情報を取得（video_idがある場合）
+        let videoTitle = null
+        if (test.video_id) {
+          const { data: video } = await supabaseAdmin
+            .from('videos')
+            .select('title')
+            .eq('id', test.video_id)
+            .single()
+          videoTitle = video?.title || '不明な動画'
+        }
+
+        // コース情報を取得（course_idがある場合）
+        let courseTitle = null
+        if (test.course_id) {
+          const { data: course } = await supabaseAdmin
+            .from('courses')
+            .select('name')
+            .eq('id', test.course_id)
+            .single()
+          courseTitle = course?.name || '不明なコース'
+        }
 
         return {
           id: test.id,
           title: test.title,
           videoId: test.video_id,
-          videoTitle: video?.title || '不明な動画',
+          videoTitle: videoTitle,
+          courseId: test.course_id,
+          courseTitle: courseTitle,
           questionCount: count || 0,
           organization: test.organization,
           createdAt: test.created_at,
@@ -104,6 +121,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
+
 
 
 

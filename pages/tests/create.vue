@@ -182,11 +182,47 @@
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">紐付ける動画 <span class="required">*</span></label>
-                <select v-model="testData.videoId" class="form-select">
+                <label class="form-label">紐付ける対象 <span class="required">*</span></label>
+                <div class="radio-group" style="margin-bottom: 16px;">
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      name="link-type"
+                      value="video"
+                      v-model="linkType"
+                      @change="onLinkTypeChange"
+                    />
+                    <span>動画</span>
+                  </label>
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      name="link-type"
+                      value="course"
+                      v-model="linkType"
+                      @change="onLinkTypeChange"
+                    />
+                    <span>コース</span>
+                  </label>
+                </div>
+                <select 
+                  v-if="linkType === 'video'"
+                  v-model="testData.videoId" 
+                  class="form-select"
+                >
                   <option value="">動画を選択してください</option>
                   <option v-for="video in videos" :key="video.id" :value="video.id">
                     {{ video.title }}
+                  </option>
+                </select>
+                <select 
+                  v-else
+                  v-model="testData.courseId" 
+                  class="form-select"
+                >
+                  <option value="">コースを選択してください</option>
+                  <option v-for="course in courses" :key="course.id" :value="course.id">
+                    {{ course.name }}
                   </option>
                 </select>
               </div>
@@ -362,10 +398,17 @@ const isSaving = ref(false)
 // 動画リスト
 const videos = ref<Array<{ id: number; title: string }>>([])
 
+// コースリスト
+const courses = ref<Array<{ id: number; name: string }>>([])
+
+// 紐付けタイプ（'video' または 'course'）
+const linkType = ref<'video' | 'course'>('video')
+
 // テストデータ
 const testData = ref({
   title: '',
   videoId: '',
+  courseId: '',
   questions: [] as Array<{
     id: number
     text: string
@@ -443,6 +486,36 @@ const loadVideos = async () => {
   }
 }
 
+// コースリストを取得
+const loadCourses = async () => {
+  try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    const data = await $fetch('/api/courses', {
+      method: 'GET',
+      query: queryParams
+    })
+    courses.value = (data || []).map((c: any) => ({
+      id: c.id,
+      name: c.name
+    }))
+  } catch (error) {
+    console.error('Error loading courses:', error)
+  }
+}
+
+// 紐付けタイプが変更されたときの処理
+const onLinkTypeChange = () => {
+  // タイプが変更されたら、選択をリセット
+  testData.value.videoId = ''
+  testData.value.courseId = ''
+}
+
 // 問いを追加
 const addQuestion = () => {
   testData.value.questions.push({
@@ -503,8 +576,13 @@ const handleSave = async () => {
     return
   }
   
-  if (!testData.value.videoId) {
+  if (linkType.value === 'video' && !testData.value.videoId) {
     alert('動画を選択してください')
+    return
+  }
+  
+  if (linkType.value === 'course' && !testData.value.courseId) {
+    alert('コースを選択してください')
     return
   }
   
@@ -568,7 +646,8 @@ const handleSave = async () => {
       },
       body: {
         title: testData.value.title,
-        videoId: testData.value.videoId,
+        videoId: linkType.value === 'video' ? testData.value.videoId : null,
+        courseId: linkType.value === 'course' ? testData.value.courseId : null,
         questions: testData.value.questions.map(q => ({
           text: q.text,
           type: q.type,
@@ -587,7 +666,19 @@ const handleSave = async () => {
     router.push('/tests')
   } catch (error: any) {
     console.error('Error saving test:', error)
-    alert('テストの保存に失敗しました: ' + (error.data?.message || error.message || '不明なエラー'))
+    console.error('Error details:', error.data)
+    
+    // エラーメッセージを取得
+    let errorMessage = '不明なエラー'
+    if (error.data?.message) {
+      errorMessage = error.data.message
+    } else if (error.message) {
+      errorMessage = error.message
+    } else if (error.statusMessage) {
+      errorMessage = error.statusMessage
+    }
+    
+    alert('テストの保存に失敗しました: ' + errorMessage)
   } finally {
     isSaving.value = false
   }
@@ -638,6 +729,7 @@ const handleClickOutside = (event: MouseEvent) => {
 onMounted(async () => {
   await loadCurrentUser()
   await loadVideos()
+  await loadCourses()
   document.addEventListener('click', handleClickOutside)
 })
 

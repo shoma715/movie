@@ -120,6 +120,14 @@ export default defineEventHandler(async (event) => {
         const total = videos.length
         const percentage = total > 0 ? Math.round((completedCount / total) * 100) : 0
 
+        // コースに紐付けられたテストを取得
+        const { data: courseTest, error: testError } = await supabaseAdmin
+          .from('tests')
+          .select('id, title')
+          .eq('course_id', course.id)
+          .eq('organization', organization || '')
+          .single()
+
         return {
           ...course,
           contents: videos,
@@ -127,7 +135,11 @@ export default defineEventHandler(async (event) => {
             completed: completedCount,
             total: total,
             percentage: percentage
-          }
+          },
+          test: courseTest ? {
+            id: courseTest.id,
+            title: courseTest.title
+          } : null
         }
       })
     )
@@ -139,6 +151,7 @@ export default defineEventHandler(async (event) => {
     return []
   }
 })
+
 
 
 

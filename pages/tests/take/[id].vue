@@ -210,7 +210,8 @@ const showReview = ref(false)
 const testData = ref<{
   id: number
   title: string
-  videoId: number
+  videoId: number | null
+  courseId: number | null
   questions: Array<{
     id: number
     text: string

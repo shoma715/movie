@@ -324,7 +324,8 @@
                 </div>
               </div>
               <h3 class="test-title">{{ test.title }}</h3>
-              <p class="test-video">動画: {{ test.videoTitle }}</p>
+              <p class="test-video" v-if="test.videoTitle">動画: {{ test.videoTitle }}</p>
+              <p class="test-video" v-else-if="test.courseTitle">コース: {{ test.courseTitle }}</p>
               <div class="test-meta">
                 <span class="test-questions">{{ test.questionCount }}問</span>
                 <span class="test-date">{{ formatDate(test.createdAt) }}</span>
@@ -365,8 +366,10 @@ const isOrgAdmin = ref(false)
 const tests = ref<Array<{
   id: number
   title: string
-  videoId: number
-  videoTitle: string
+  videoId: number | null
+  videoTitle: string | null
+  courseId: number | null
+  courseTitle: string | null
   questionCount: number
   createdAt: string
 }>>([])
@@ -379,7 +382,8 @@ const filteredTests = computed(() => {
   const query = searchQuery.value.toLowerCase()
   return tests.value.filter(test => 
     test.title.toLowerCase().includes(query) ||
-    test.videoTitle.toLowerCase().includes(query)
+    (test.videoTitle && test.videoTitle.toLowerCase().includes(query)) ||
+    (test.courseTitle && test.courseTitle.toLowerCase().includes(query))
   )
 })
 
@@ -455,7 +459,8 @@ const handleTestClick = (test: any) => {
   // 一般ユーザーはテスト受験ページへ
   // 組織管理者は結果ページへ
   if (isOrgAdmin.value) {
-    router.push(`/tests/${test.videoId}/results`)
+    // テストIDを使用（動画IDまたはコースIDに紐付けられたテストに対応）
+    router.push(`/tests/${test.id}/results`)
   } else {
     // TODO: テスト受験ページへ遷移
     router.push(`/tests/take/${test.id}`)

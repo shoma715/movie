@@ -58,13 +58,29 @@ export default defineEventHandler(async (event) => {
 
     // リクエストボディを取得
     const body = await readBody(event)
-    const { title, videoId, questions } = body
+    const { title, videoId, courseId, questions } = body
 
     // バリデーション
-    if (!title || !videoId || !questions || questions.length === 0) {
+    if (!title || !questions || questions.length === 0) {
       throw createError({
         statusCode: 400,
         message: '必須項目が不足しています'
+      })
+    }
+
+    // 動画IDまたはコースIDのどちらか一方が必須
+    if (!videoId && !courseId) {
+      throw createError({
+        statusCode: 400,
+        message: '動画またはコースのどちらかを選択してください'
+      })
+    }
+
+    // 動画IDとコースIDの両方が指定されている場合はエラー
+    if (videoId && courseId) {
+      throw createError({
+        statusCode: 400,
+        message: '動画とコースの両方を選択することはできません'
       })
     }
 
@@ -88,7 +104,8 @@ export default defineEventHandler(async (event) => {
       .from('tests')
       .update({
         title,
-        video_id: videoId,
+        video_id: videoId || null,
+        course_id: courseId || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', testId)
@@ -179,6 +196,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
+
 
 
 

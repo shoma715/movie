@@ -191,11 +191,47 @@
                 />
               </div>
               <div class="form-group">
-                <label class="form-label">紐付ける動画 <span class="required">*</span></label>
-                <select v-model="testData.videoId" class="form-select">
+                <label class="form-label">紐付ける対象 <span class="required">*</span></label>
+                <div class="radio-group" style="margin-bottom: 16px;">
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      name="link-type"
+                      value="video"
+                      v-model="linkType"
+                      @change="onLinkTypeChange"
+                    />
+                    <span>動画</span>
+                  </label>
+                  <label class="radio-label">
+                    <input 
+                      type="radio" 
+                      name="link-type"
+                      value="course"
+                      v-model="linkType"
+                      @change="onLinkTypeChange"
+                    />
+                    <span>コース</span>
+                  </label>
+                </div>
+                <select 
+                  v-if="linkType === 'video'"
+                  v-model="testData.videoId" 
+                  class="form-select"
+                >
                   <option value="">動画を選択してください</option>
                   <option v-for="video in videos" :key="video.id" :value="video.id">
                     {{ video.title }}
+                  </option>
+                </select>
+                <select 
+                  v-else
+                  v-model="testData.courseId" 
+                  class="form-select"
+                >
+                  <option value="">コースを選択してください</option>
+                  <option v-for="course in courses" :key="course.id" :value="course.id">
+                    {{ course.name }}
                   </option>
                 </select>
               </div>
@@ -369,10 +405,20 @@ const isSaving = ref(false)
 // 動画リスト
 const videos = ref<Array<{ id: number; title: string }>>([])
 
+// コースリスト
+const courses = ref<Array<{ id: number; name: string }>>([])
+
+// 紐付けタイプ（'video' または 'course'）
+const linkType = ref<'video' | 'course'>('video')
+
+// 現在の組織
+const currentOrganization = ref<string | null>(null)
+
 // テストデータ
 const testData = ref<{
   title: string
   videoId: string | number
+  courseId: string | number
   questions: Array<{
     id: number
     text: string
@@ -406,6 +452,11 @@ const loadCurrentUser = async () => {
         user_metadata: user.user_metadata
       }
       
+      // 組織情報を取得
+      if (user.user_metadata?.organization) {
+        currentOrganization.value = user.user_metadata.organization
+      }
+      
       // 組織管理者かどうかをチェック
       const userRole = user.user_metadata?.role || user.app_metadata?.role
       if (userRole !== 'org_admin' && userRole !== 'organization_admin') {
@@ -425,8 +476,16 @@ const loadCurrentUser = async () => {
 // 動画リストを取得
 const loadVideos = async () => {
   try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
     const data = await $fetch('/api/videos', {
-      method: 'GET'
+      method: 'GET',
+      query: queryParams
     })
     videos.value = (data || []).map((v: any) => ({
       id: v.id,
@@ -435,6 +494,37 @@ const loadVideos = async () => {
   } catch (error) {
     console.error('Error loading videos:', error)
   }
+}
+
+// コースリストを取得
+const loadCourses = async () => {
+  try {
+    const queryParams: any = {}
+    
+    // 現在の組織が設定されている場合、組織でフィルタリング
+    if (currentOrganization.value) {
+      queryParams.organization = currentOrganization.value
+    }
+    
+    const data = await $fetch('/api/courses', {
+      method: 'GET',
+      query: queryParams
+    })
+    courses.value = (data || []).map((c: any) => ({
+      id: c.id,
+      name: c.name
+    }))
+  } catch (error) {
+    console.error('Error loading courses:', error)
+  }
+}
+
+// 紐付けタイプが変更されたときの処理
+const onLinkTypeChange = () => {
+  if (!testData.value) return
+  // タイプが変更されたら、選択をリセット
+  testData.value.videoId = ''
+  testData.value.courseId = ''
 }
 
 // テストデータを取得
@@ -450,9 +540,17 @@ const loadTestData = async () => {
       method: 'GET'
     }) as any
 
+    // 紐付けタイプを判定
+    if (data.videoId) {
+      linkType.value = 'video'
+    } else if (data.courseId) {
+      linkType.value = 'course'
+    }
+    
     testData.value = {
       title: data.title,
-      videoId: data.videoId,
+      videoId: data.videoId || '',
+      courseId: data.courseId || '',
       questions: data.questions.map((q: any) => {
         questionIdCounter = Math.max(questionIdCounter, q.id + 1)
         return {
@@ -544,8 +642,13 @@ const handleSave = async () => {
     return
   }
   
-  if (!testData.value.videoId) {
+  if (linkType.value === 'video' && !testData.value.videoId) {
     alert('動画を選択してください')
+    return
+  }
+  
+  if (linkType.value === 'course' && !testData.value.courseId) {
+    alert('コースを選択してください')
     return
   }
   
@@ -608,7 +711,8 @@ const handleSave = async () => {
       },
       body: {
         title: testData.value.title,
-        videoId: testData.value.videoId,
+        videoId: linkType.value === 'video' ? testData.value.videoId : null,
+        courseId: linkType.value === 'course' ? testData.value.courseId : null,
         questions: testData.value.questions.map(q => ({
           text: q.text,
           type: q.type,
@@ -678,6 +782,7 @@ const handleClickOutside = (event: MouseEvent) => {
 onMounted(async () => {
   await loadCurrentUser()
   await loadVideos()
+  await loadCourses()
   await loadTestData()
   document.addEventListener('click', handleClickOutside)
 })

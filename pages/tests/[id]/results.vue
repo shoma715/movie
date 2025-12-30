@@ -132,10 +132,16 @@
                   <div class="info-label">タイトル</div>
                   <div class="info-value">{{ testInfo.title }}</div>
                 </div>
-                <div class="info-item">
+                <div class="info-item" v-if="testInfo.videoTitle">
                   <div class="info-label">紐付く動画</div>
                   <div class="info-value info-link" @click="navigateToVideo">
                     📺 {{ testInfo.videoTitle }}
+                  </div>
+                </div>
+                <div class="info-item" v-if="testInfo.courseTitle">
+                  <div class="info-label">紐付くコース</div>
+                  <div class="info-value">
+                    📚 {{ testInfo.courseTitle }}
                   </div>
                 </div>
               </div>
